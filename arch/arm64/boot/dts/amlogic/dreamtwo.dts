@@ -1,0 +1,2 @@
+#include "dreamone.dts"
+#include "dreamtwo-panel.dtsi"
