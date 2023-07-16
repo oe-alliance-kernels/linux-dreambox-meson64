@@ -540,6 +540,9 @@ static void meson_uart_change_speed(struct uart_port *port, unsigned long baud)
 	struct meson_uart_port *mup = to_meson_port(port);
 	struct platform_device *pdev = to_platform_device(port->dev);
 
+	if (mup->baud == baud)
+		return;
+
 	while (!(readl(port->membase + AML_UART_STATUS) & AML_UART_TX_EMPTY))
 		cpu_relax();
 

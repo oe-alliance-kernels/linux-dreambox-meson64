@@ -26,6 +26,14 @@
 /*#define G12A_PTM*/
 /*#define __PTM_SPDIF_INTERNAL_LB__*/
 
+extern int spdif_a_mute;
+extern int spdif_b_mute;
+
+static inline int mute_val(int index)
+{
+    return index ? spdif_b_mute : spdif_a_mute;
+}
+
 unsigned int aml_spdif_ctrl_read(struct aml_audio_controller *actrl,
 	int stream, int index)
 {
@@ -264,8 +272,8 @@ void aml_spdif_fifo_ctrl(
 		reg = EE_AUDIO_SPDIFOUT_CTRL0 + offset * index;
 		aml_audiobus_update_bits(actrl,
 			reg,
-			0x1<<29|0x1<<28|0x1<<20|0x1<<19|0xff<<4,
-			1<<29|1<<28|0<<20|0<<19|0x3<<4);
+			0x1<<29|0x1<<28|0x3<<21|0x1<<20|0x1<<19|0xff<<4,
+			1<<29|1<<28|mute_val(index)<<21|0<<20|0<<19|0x3<<4);
 
 		offset = EE_AUDIO_SPDIFOUT_B_CTRL1 - EE_AUDIO_SPDIFOUT_CTRL1;
 		reg = EE_AUDIO_SPDIFOUT_CTRL1 + offset * index;
@@ -450,8 +458,8 @@ static void spdifout_fifo_ctrl(int spdif_id,
 	offset = EE_AUDIO_SPDIFOUT_B_CTRL0 - EE_AUDIO_SPDIFOUT_CTRL0;
 	reg = EE_AUDIO_SPDIFOUT_CTRL0 + offset * spdif_id;
 	audiobus_update_bits(reg,
-		0x1<<20|0x1<<19|0xff<<4,
-		0<<20|0<<19|chmask<<4);
+		0x3<<21|0x1<<20|0x1<<19|0xff<<4,
+		mute_val(spdif_id)<<21|0<<20|0<<19|0x3<<4);
 
 	offset = EE_AUDIO_SPDIFOUT_B_CTRL1 - EE_AUDIO_SPDIFOUT_CTRL1;
 	reg = EE_AUDIO_SPDIFOUT_CTRL1 + offset * spdif_id;
@@ -464,7 +472,7 @@ static void spdifout_fifo_ctrl(int spdif_id,
 	audiobus_write(reg, swap_masks);
 }
 
-static bool spdifout_is_enable(int spdif_id)
+bool spdifout_is_enable(int spdif_id)
 {
 	unsigned int offset, reg, val;
 

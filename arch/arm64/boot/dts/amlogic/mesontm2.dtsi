@@ -285,6 +285,7 @@
 		status = "okay";
 		reg = <0x0 0xFF6345E0 0x0 4>;
 		reg-names = "PREG_STICKY_REG8";
+		store_device = "data";
 	};
 
 	vpu {
@@ -693,10 +694,10 @@
 		/* eARC */
 		audio_earc: bus@ff603000 {
 			compatible = "simple-bus";
-			reg = <0x0 0xff603000 0x0 0xD000>;
+			reg = <0x0 0xff603000 0x0 0x1000>;
 			#address-cells = <2>;
 			#size-cells = <2>;
-			ranges = <0x0 0x0 0x0 0xff603000 0x0 0xD000>;
+			ranges = <0x0 0x0 0x0 0xff603000 0x0 0x1000>;
 
 			earc: earc@0 {
 				compatible = "amlogic, tm2-snd-earc";
@@ -767,6 +768,12 @@
 			};
 			vad_base {
 				reg = <0x0 0xFF601800 0x0 0x400>;
+			};
+			resampleA_base {
+				reg = <0x0 0xFF601C00 0x0 0x104>;
+			};
+			resampleB_base {
+				reg = <0x0 0xFF601C00 0x0 0x104>;
 			};
 		};
 
@@ -1042,10 +1049,11 @@
 	}; /* end of soc*/
 
 	custom_maps: custom_maps {
-		mapnum = <3>;
+		mapnum = <4>;
 		map0 = <&map_0>;
 		map1 = <&map_1>;
 		map2 = <&map_2>;
+		map3 = <&map_3>;
 		map_0: map_0{
 			mapname = "amlogic-remote-1";
 			customcode = <0xfb04>;
@@ -1189,6 +1197,59 @@
 				REMOTE_KEY(0x9c,KEY_PROPS)
 				REMOTE_KEY(0x9a,KEY_SCALE)
 				REMOTE_KEY(0xcd,KEY_KPCOMMA)>;
+		};
+		map_3: map_3{
+			mapname = "amlogic-remote-4";
+			customcode = <0xa4e8>; /* Reference Remote Control */
+			release_delay = <80>;
+			size  = <45>;
+			keymap = <
+				REMOTE_KEY(0xc7, 200) /* power */
+				REMOTE_KEY(0x93, 201) /* eject-->input source */
+				REMOTE_KEY(0xb2, 202) /* usb */
+				REMOTE_KEY(0xb8, 203) /* coaxial */
+				REMOTE_KEY(0xb7, 204) /* aux */
+				REMOTE_KEY(0x8a, 205) /* scan-->hdmi arc */
+				REMOTE_KEY(0x96, 206) /* dimmer */
+				REMOTE_KEY(0x90, 207) /* hdmi1 */
+				REMOTE_KEY(0xa8, 208) /* hdmi2 */
+				REMOTE_KEY(0x85, 209) /* mute */
+				REMOTE_KEY(0x80, 210) /* vol+ */
+				REMOTE_KEY(0x81, 211) /* vol- */
+				REMOTE_KEY(0x61, 212) /* DAP */
+				REMOTE_KEY(0x62, 213) /* BM */
+				REMOTE_KEY(0x63, 214) /* DRC */
+				REMOTE_KEY(0x64, 215) /* POST */
+				REMOTE_KEY(0x65, 216) /* UPMIX */
+				REMOTE_KEY(0x66, 217) /* VIRT */
+				REMOTE_KEY(0x67, 218) /* LEGACY */
+				REMOTE_KEY(0x68, 219) /* HFILT */
+				REMOTE_KEY(0x69, 220) /* Loundness */
+				REMOTE_KEY(0x60, 221) /* Audio_info */
+				REMOTE_KEY(0xb1, 222) /* CD */
+				REMOTE_KEY(0xb4, 223) /* CD */
+				REMOTE_KEY(0xb9, 224) /* CD */
+				REMOTE_KEY(0xab, 225) /* CD */
+				REMOTE_KEY(0x91, 226) /* CD */
+				REMOTE_KEY(0x92, 227) /* CD */
+				REMOTE_KEY(0x89, 228) /* CD */
+				REMOTE_KEY(0x88, 229) /* CD */
+				REMOTE_KEY(0xa5, 230) /* CD */
+				REMOTE_KEY(0x84, 231) /* CD */
+				REMOTE_KEY(0x72, 232) /* CD */
+				REMOTE_KEY(0x73, 233) /* CD */
+				REMOTE_KEY(0x9a, 234) /* CD */
+				REMOTE_KEY(0x9b, 235) /* CD */
+				REMOTE_KEY(0xa0, 236) /* CD */
+				REMOTE_KEY(0x71, 237) /* CD */
+				REMOTE_KEY(0x74, 238) /* CD */
+				REMOTE_KEY(0x75, 239) /* CD */
+				REMOTE_KEY(0x7e, 240) /* CD */
+				REMOTE_KEY(0x7f, 241) /* CD */
+				REMOTE_KEY(0x7a, 242) /* CD */
+				REMOTE_KEY(0xa7, 243) /* CD */
+				REMOTE_KEY(0xa9, 244) /* CD */
+				>;
 		};
 	};
 
@@ -1589,6 +1650,7 @@
 		ic_type = <13>;
 		vend_data: vend_data{ /* Should modified by Customer */
 			vendor_name = "Amlogic"; /* Max Chars: 8 */
+			product_desc = "MBox Meson Ref"; /* Max Chars: 16 */
 			/* standards.ieee.org/develop/regauth/oui/oui.txt */
 			vendor_id = <0x000000>;
 		};
@@ -2340,8 +2402,8 @@
 
 	internal_gpio_pins: internal_gpio_pins {
 		mux {
-			groups = "GPIOZ_14",
-				"GPIOZ_15";
+			groups = "GPIOH_0",
+				"GPIOH_1";
 			function = "gpio_periphs";
 			bias-disable;
 			input-enable;

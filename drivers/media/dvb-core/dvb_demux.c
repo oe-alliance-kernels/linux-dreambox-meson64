@@ -169,7 +169,7 @@ static inline int dvb_dmx_swfilter_section_feed(struct dvb_demux_feed *feed)
 		return 0;
 
 	if (sec->check_crc) {
-		section_syntax_indicator = ((sec->secbuf[1] & 0x80) != 0);
+		section_syntax_indicator = 1; // ((sec->secbuf[1] & 0x80) != 0);
 		if (section_syntax_indicator &&
 		    demux->check_crc32(feed, sec->secbuf, sec->seclen))
 			return -1;
@@ -515,9 +515,13 @@ static inline void _dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf,
 {
 	int p = 0, i, j;
 	const u8 *q;
-	unsigned long flags;
+	unsigned long flags = 0;
+	struct dmx_demux *dmx = (struct dmx_demux*)demux;
 
-	spin_lock_irqsave(&demux->lock, flags);
+	if (dmx->frontend && dmx->frontend->source == DMX_MEMORY_FE)
+		spin_lock(&demux->lock);
+	else
+		spin_lock_irqsave(&demux->lock, flags);
 
 	if (demux->tsbufp) { /* tsbuf[0] is now 0x47. */
 		i = demux->tsbufp;
@@ -561,7 +565,10 @@ static inline void _dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf,
 	}
 
 bailout:
-	spin_unlock_irqrestore(&demux->lock, flags);
+	if (dmx->frontend && dmx->frontend->source == DMX_MEMORY_FE)
+		spin_unlock(&demux->lock);
+	else
+		spin_unlock_irqrestore(&demux->lock, flags);
 }
 
 void dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf, size_t count)

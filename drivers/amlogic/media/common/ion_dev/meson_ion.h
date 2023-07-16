@@ -28,9 +28,9 @@
 #define ION_IOC_MESON_PHYS_ADDR             8
 
 struct meson_phys_data {
-	int handle;
-	unsigned int phys_addr;
-	unsigned int size;
+	ion_user_handle_t handle;
+	unsigned long phys_addr;
+	size_t size;
 };
 
 

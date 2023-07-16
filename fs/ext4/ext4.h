@@ -41,6 +41,17 @@
 #define __FS_HAS_ENCRYPTION IS_ENABLED(CONFIG_EXT4_FS_ENCRYPTION)
 #include <linux/fscrypt.h>
 
+#include <linux/compiler.h>
+
+/* Until this gets included into linux/compiler-gcc.h */
+#ifndef __nonstring
+#if defined(GCC_VERSION) && (GCC_VERSION >= 80000)
+#define __nonstring __attribute__((nonstring))
+#else
+#define __nonstring
+#endif
+#endif
+
 /*
  * The fourth extended filesystem constants/structures
  */
@@ -1250,7 +1261,7 @@ struct ext4_super_block {
 	__le32	s_feature_ro_compat;	/* readonly-compatible feature set */
 /*68*/	__u8	s_uuid[16];		/* 128-bit uuid for volume */
 /*78*/	char	s_volume_name[16];	/* volume name */
-/*88*/	char	s_last_mounted[64];	/* directory where last mounted */
+/*88*/	char	s_last_mounted[64] __nonstring;	/* directory where last mounted */
 /*C8*/	__le32	s_algorithm_usage_bitmap; /* For compression */
 	/*
 	 * Performance hints.  Directory preallocation should only
@@ -1301,13 +1312,13 @@ struct ext4_super_block {
 	__le32	s_first_error_time;	/* first time an error happened */
 	__le32	s_first_error_ino;	/* inode involved in first error */
 	__le64	s_first_error_block;	/* block involved of first error */
-	__u8	s_first_error_func[32];	/* function where the error happened */
+	__u8	s_first_error_func[32] __nonstring;	/* function where the error happened */
 	__le32	s_first_error_line;	/* line number where error happened */
 	__le32	s_last_error_time;	/* most recent time of an error */
 	__le32	s_last_error_ino;	/* inode involved in last error */
 	__le32	s_last_error_line;	/* line number where error happened */
 	__le64	s_last_error_block;	/* block involved of last error */
-	__u8	s_last_error_func[32];	/* function where the error happened */
+	__u8	s_last_error_func[32] __nonstring;	/* function where the error happened */
 #define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
 	__u8	s_mount_opts[64];
 	__le32	s_usr_quota_inum;	/* inode for tracking user quota */
@@ -2696,7 +2707,8 @@ static inline int ext4_has_metadata_csum(struct super_block *sb)
 	WARN_ON_ONCE(ext4_has_feature_metadata_csum(sb) &&
 		     !EXT4_SB(sb)->s_chksum_driver);
 
-	return (EXT4_SB(sb)->s_chksum_driver != NULL);
+	return ext4_has_feature_metadata_csum(sb) &&
+		(EXT4_SB(sb)->s_chksum_driver != NULL);
 }
 static inline ext4_fsblk_t ext4_blocks_count(struct ext4_super_block *es)
 {
@@ -3002,9 +3014,6 @@ extern struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
 extern int ext4_inline_data_fiemap(struct inode *inode,
 				   struct fiemap_extent_info *fieinfo,
 				   int *has_inline, __u64 start, __u64 len);
-extern int ext4_try_to_evict_inline_data(handle_t *handle,
-					 struct inode *inode,
-					 int needed);
 extern void ext4_inline_data_truncate(struct inode *inode, int *has_inline);
 
 extern int ext4_convert_inline_data(struct inode *inode);

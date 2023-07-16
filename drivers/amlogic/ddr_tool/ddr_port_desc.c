@@ -50,7 +50,7 @@
  *         |    |     | ... |     |
  *       emmc  ge2d  usb  audio  spicc
  */
-static struct ddr_port_desc ddr_port_desc_m8b[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_m8b[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -78,7 +78,7 @@ static struct ddr_port_desc ddr_port_desc_m8b[] __initdata = {
 	{ .port_id = 45, .port_name = "ETHERNET"      }
 };
 
-static struct ddr_port_desc ddr_port_desc_gxbb[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_gxbb[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -111,7 +111,7 @@ static struct ddr_port_desc ddr_port_desc_gxbb[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_gxl[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_gxl[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -146,7 +146,7 @@ static struct ddr_port_desc ddr_port_desc_gxl[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_gxm[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_gxm[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI"          },
 	{ .port_id =  2, .port_name = "H265ENC"       },
@@ -181,7 +181,7 @@ static struct ddr_port_desc ddr_port_desc_gxm[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_gxlx[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_gxlx[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -216,7 +216,7 @@ static struct ddr_port_desc ddr_port_desc_gxlx[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_g12a[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_g12a[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI"          },
 	{ .port_id =  2, .port_name = "PCIE"          },
@@ -252,7 +252,7 @@ static struct ddr_port_desc ddr_port_desc_g12a[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_g12b[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_g12b[] = {
 	{ .port_id =  0, .port_name = "ARM-ADDR-E"    },
 	{ .port_id =  1, .port_name = "MALI"          },
 	{ .port_id =  2, .port_name = "PCIE"          },
@@ -293,7 +293,7 @@ static struct ddr_port_desc ddr_port_desc_g12b[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_axg[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_axg[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "PCIE-A"        },
 	{ .port_id =  2, .port_name = "PCIE-B"        },
@@ -315,7 +315,7 @@ static struct ddr_port_desc ddr_port_desc_axg[] __initdata = {
 	{ .port_id = 46, .port_name = "SPICC1"        }
 };
 
-static struct ddr_port_desc ddr_port_desc_txl[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_txl[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -351,7 +351,7 @@ static struct ddr_port_desc ddr_port_desc_txl[] __initdata = {
 	{ .port_id = 47, .port_name = "DEMOD"         }
 };
 
-static struct ddr_port_desc ddr_port_desc_txlx[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_txlx[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -387,7 +387,7 @@ static struct ddr_port_desc ddr_port_desc_txlx[] __initdata = {
 	{ .port_id = 47, .port_name = "DEMOD"         }
 };
 
-static struct ddr_port_desc ddr_port_desc_txhd[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_txhd[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  2, .port_name = "MALI1"         },
@@ -421,7 +421,7 @@ static struct ddr_port_desc ddr_port_desc_txhd[] __initdata = {
 	{ .port_id = 47, .port_name = "DEMOD"         }
 };
 
-static struct ddr_port_desc ddr_port_desc_tl1[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_tl1[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI0"         },
 	{ .port_id =  3, .port_name = "HDCP_HDMI"     },
@@ -456,7 +456,7 @@ static struct ddr_port_desc ddr_port_desc_tl1[] __initdata = {
 	{ .port_id = 47, .port_name = "DEMOD"         }
 };
 
-static struct ddr_port_desc ddr_port_desc_sm1[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_sm1[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI"          },
 	{ .port_id =  2, .port_name = "PCIE"          },
@@ -493,7 +493,7 @@ static struct ddr_port_desc ddr_port_desc_sm1[] __initdata = {
 	{ .port_id = 46, .port_name = "SANA"          }
 };
 
-static struct ddr_port_desc ddr_port_desc_tm2[] __initdata = {
+static struct ddr_port_desc ddr_port_desc_tm2[] = {
 	{ .port_id =  0, .port_name = "ARM"           },
 	{ .port_id =  1, .port_name = "MALI"          },
 	{ .port_id =  2, .port_name = "PCIE"          },
@@ -538,7 +538,7 @@ static struct ddr_port_desc ddr_port_desc_tm2[] __initdata = {
 static struct ddr_port_desc *chip_ddr_port;
 static unsigned char chip_ddr_port_num;
 
-int __init ddr_find_port_desc(int cpu_type, struct ddr_port_desc **desc)
+int ddr_find_port_desc(int cpu_type, struct ddr_port_desc **desc)
 {
 	int desc_size = -EINVAL;
 

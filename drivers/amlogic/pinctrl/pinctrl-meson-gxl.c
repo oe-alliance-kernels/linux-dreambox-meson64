@@ -405,8 +405,10 @@ static const unsigned int dvp_d2_9_pins[] = {
 };
 
 /*iso7816*/
-static const unsigned int iso7816_clk_dv_pins[] = { GPIODV_22 };
-static const unsigned int iso7816_data_dv_pins[] = { GPIODV_23 };
+static const unsigned int iso7816_clk_z6_pins[] = { GPIOZ_6 };
+static const unsigned int iso7816_data_z7_pins[] = { GPIOZ_7 };
+static const unsigned int iso7816_clk_dv22_pins[] = { GPIODV_22 };
+static const unsigned int iso7816_data_dv23_pins[] = { GPIODV_23 };
 
 static struct meson_pmx_group meson_gxl_periphs_groups[] = {
 	GPIO_GROUP(GPIOZ_0),
@@ -588,6 +590,8 @@ static struct meson_pmx_group meson_gxl_periphs_groups[] = {
 	GROUP(tsin_fail_b_z4,		3,	15),	/*z4*/
 	GROUP(dvp_d2_9,			3,	11),	/*z4*/
 	GROUP(i2sout_ch23_z5,		3,	26),	/*z5*/
+	GROUP(iso7816_clk_z6,		4,	9),	/*z6*/
+	GROUP(iso7816_data_z7,		4,	8),	/*z7*/
 	GROUP(i2sout_ch45_z6,		3,	25),	/*z6*/
 	GROUP(i2sout_ch67_z7,		3,	24),	/*z7*/
 	GROUP(spi_sclk_0,		4,	4),	/*z11*/
@@ -642,8 +646,8 @@ static struct meson_pmx_group meson_gxl_periphs_groups[] = {
 	GROUP(i2c_scl_c_dv19,		1,	16),	/*dv19*/
 	GROUP(pwm_b,			2,	11),	/*dv29*/
 	GROUP(pwm_d,			2,	12),	/*dv28*/
-	GROUP(iso7816_clk_dv,		2,	18), /*dv22*/
-	GROUP(iso7816_data_dv,		2,	17), /*dv23*/
+	GROUP(iso7816_clk_dv22,		2,	18),	/*dv22*/
+	GROUP(iso7816_data_dv23,	2,	17),	/*dv23*/
 
 	/* Bank BOOT */
 	GROUP(emmc_nand_d07,		7,	31),
@@ -1000,11 +1004,9 @@ static const char *const dmic_groups[] = {
 	"dmic_in_z8", "dmic_clk_z9",
 };
 
-static const char * const iso7816_groups[] = {
-	"iso7816_clk_dv", "iso7816_data_dv",
+static const char *const iso7816_groups[] = {
+	"iso7816_clk_z6", "iso7816_clk_dv22", "iso7816_data_z7", "iso7816_data_dv23"
 };
-
-
 static struct meson_pmx_func meson_gxl_periphs_functions[] = {
 	FUNCTION(gpio_periphs),
 	FUNCTION(emmc),
@@ -1043,6 +1045,7 @@ static struct meson_pmx_func meson_gxl_periphs_functions[] = {
 	FUNCTION(nor),
 	FUNCTION(dvp),
 	FUNCTION(dmic),
+	FUNCTION(iso7816),
 };
 
 static const char * const gpio_aobus_groups[] = {

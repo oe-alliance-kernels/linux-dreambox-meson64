@@ -14,13 +14,31 @@
  * more details.
  *
  */
+#define DEBUG
+
 #include <linux/types.h>
 #include <linux/kernel.h>
 
 #include <linux/amlogic/media/sound/spdif_info.h>
 #include "earc_hw.h"
 
-void earcrx_cmdc_init(struct regmap *top_map)
+void earcrx_pll_refresh(struct regmap *top_map)
+{
+	/* pll tdc mode */
+	mmio_update_bits(top_map, EARCRX_PLL_CTRL3,
+			 0x1 << 15, 0x1 << 15);
+
+	/* pll self reset */
+	mmio_update_bits(top_map, EARCRX_PLL_CTRL0,
+			 0x1 << 29, 0x1 << 29);
+	mmio_update_bits(top_map, EARCRX_PLL_CTRL0,
+			 0x1 << 29, 0x0 << 29);
+
+	mmio_update_bits(top_map, EARCRX_PLL_CTRL3,
+			 0x1 << 15, 0x0 << 15);
+}
+
+void earcrx_cmdc_int_mask(struct regmap *top_map)
 {
 	/* set irq mask */
 	mmio_write(top_map, EARCRX_CMDC_INT_MASK,
@@ -41,7 +59,10 @@ void earcrx_cmdc_init(struct regmap *top_map)
 		   (0 <<  1) |  /* int_recv_packet */
 		   (0 <<  0)	 /* int_rec_time_out */
 		  );
+}
 
+void earcrx_cmdc_init(struct regmap *top_map)
+{
 	mmio_write(top_map, EARCRX_ANA_CTRL0,
 		   0x1  << 31 | /* earcrx_en_d2a */
 		   0x10 << 24 | /* earcrx_cmdcrx_reftrim */
@@ -98,8 +119,8 @@ void earcrx_cmdc_hpd_detect(struct regmap *cmdc_map, bool st)
 		mmio_update_bits(cmdc_map,
 				 EARC_RX_CMDC_VSM_CTRL0,
 				 0x1 << 19 | 0xff << 0,
-				 0x1 << 19 | /* comma_cnt_rst */
-				 0xff << 0
+				 0x0 << 19 | /* comma_cnt_rst */
+				 0xa << 0
 				);
 	} else {
 		/* soft reset */
@@ -216,7 +237,8 @@ void earcrx_arc_init(struct regmap *dmac_map)
 		   0x1 << 30 | /* reg_chnum_sel */
 		   0x1 << 25 | /* reg_findpapb_en */
 		   0x1 << 24 | /* nonpcm2pcm_th enable */
-		   0xFFF << 12   /* reg_nonpcm2pcm_th */
+		   0xFFF << 12 |  /* reg_nonpcm2pcm_th */
+		   0x1 << 2    /* reg_check_parity */
 		  );
 	mmio_write(dmac_map,
 		   EARCRX_SPDIFIN_CTRL2,
@@ -368,6 +390,16 @@ void earctx_cmdc_init(struct regmap *top_map)
 		  );
 }
 
+void earctx_cmdc_set_timeout(struct regmap *cmdc_map, int no_timeout)
+{
+	/* no timeout */
+	mmio_update_bits(cmdc_map,
+			 EARC_TX_CMDC_VSM_CTRL5,
+			 0x3 << 0,
+			 no_timeout << 1
+			 );
+}
+
 void earctx_cmdc_arc_connect(struct regmap *cmdc_map, bool init)
 {
 	if (init)
@@ -406,30 +438,27 @@ void earctx_cmdc_hpd_detect(struct regmap *top_map,
 			);
 
 	if (st) {
+		/* reset for comma_cnt, timeout_sts */
 		mmio_update_bits(cmdc_map,
 				 EARC_TX_CMDC_VSM_CTRL0,
-				 0x1 << 19,
-				 0x1 << 19	/* comma_cnt_rst */
+				 0x3 << 18,
+				 0x3 << 18
 				);
 
+		/* reset and hpd sel */
 		mmio_update_bits(cmdc_map,
 				 EARC_TX_CMDC_VSM_CTRL0,
-				 0x1 << 19 | 0xf << 20,
-				 0x0 << 19 |   /* comma_cnt_rst */
+				 0x3f << 18,
+				 0x0 << 18 |
 				 0x3 << 20 | 0x3 << 22
 				);
 
-		/* no timeout */
-		mmio_update_bits(cmdc_map,
-				 EARC_TX_CMDC_VSM_CTRL5,
-				 0x3 << 0,
-				 0x1 << 1
-				 );
+		earctx_cmdc_set_timeout(cmdc_map, 0);
 
 		mmio_update_bits(cmdc_map,
 				 EARC_TX_CMDC_VSM_CTRL1,
 				 0xff << 0,
-				 0xa << 0   /* comma_cnt_th */
+				 0x4 << 0   /* comma_cnt_th */
 				);
 	} else {
 		/* soft reset */
@@ -524,6 +553,14 @@ void earctx_set_channel_status_info(struct regmap *dmac_map,
 		   ((chsts->chstat1_r >> 8) & 0xf) << 24 | chsts->chstat0_r);
 }
 
+enum cmdc_st earctx_cmdc_get_state(struct regmap *cmdc_map)
+{
+	int val = mmio_read(cmdc_map, EARC_TX_CMDC_STATUS0);
+	enum cmdc_st state = (enum cmdc_st)(val & 0x7);
+
+	return state;
+}
+
 enum attend_type earctx_cmdc_get_attended_type(struct regmap *cmdc_map)
 {
 	int val = mmio_read(cmdc_map, EARC_TX_CMDC_STATUS0);
@@ -594,4 +631,232 @@ void earctx_enable(struct regmap *top_map,
 				 0x1 << 30,
 				 enable << 30);
 	}
+}
+
+static void earcrx_cmdc_get_reg(struct regmap *cmdc_map, int dev_id, int offset,
+				u8 *data, int bytes)
+{
+	int i;
+
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 31 | /* apb_write  */
+			 0x1 << 30 | /* apb_read */
+			 0x1 << 29 | /* apb_w_r_done */
+			 0xff << 8 | /* apb_rwid */
+			 0xff << 0,   /* apbrw_start_addr */
+			 0x0 << 31 |
+			 0x1 << 30 |
+			 0x0 << 29 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	for (i = 0; i < bytes; i++)
+		data[i] = mmio_read(cmdc_map, EARC_RX_CMDC_DEVICE_RDATA);
+
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x1 << 29);
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x0 << 29);
+}
+
+static void earcrx_cmdc_set_reg(struct regmap *cmdc_map, int dev_id, int offset,
+				u8 *data, int bytes)
+{
+	int i;
+
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 31 | /* apb_write  */
+			 0x1 << 30 | /* apb_read */
+			 0x1 << 29 | /* apb_w_r_done */
+			 0xff << 8 | /* apb_rwid */
+			 0xff << 0,   /* apbrw_start_addr */
+			 0x1 << 31 |
+			 0x0 << 30 |
+			 0x0 << 29 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	for (i = 0; i < bytes; i++)
+		mmio_write(cmdc_map, EARC_RX_CMDC_DEVICE_WDATA, data[i]);
+
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x1 << 29);
+	mmio_update_bits(cmdc_map, EARC_RX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x0 << 29);
+}
+
+/* Latency */
+void earcrx_cmdc_get_latency(struct regmap *cmdc_map, u8 *latency)
+{
+	earcrx_cmdc_get_reg(cmdc_map,
+			    STAT_CTRL_DEV_ID,
+			    ERX_LATENCY_REG,
+			    latency,
+			    1);
+}
+
+void earcrx_cmdc_set_latency(struct regmap *cmdc_map, u8 *latency)
+{
+	earcrx_cmdc_set_reg(cmdc_map,
+			    STAT_CTRL_DEV_ID,
+			    ERX_LATENCY_REG,
+			    latency,
+			    1);
+}
+
+void earcrx_cmdc_get_cds(struct regmap *cmdc_map, u8 *cds)
+{
+	earcrx_cmdc_get_reg(cmdc_map,
+			    CAP_DEV_ID,
+			    0x0,
+			    cds,
+			    CDS_MAX_BYTES);
+}
+
+void earcrx_cmdc_set_cds(struct regmap *cmdc_map, u8 *cds)
+{
+	earcrx_cmdc_set_reg(cmdc_map,
+			    CAP_DEV_ID,
+			    0x0,
+			    cds,
+			    CDS_MAX_BYTES);
+}
+
+static int earctx_cmdc_get_reg(struct regmap *cmdc_map, int dev_id, int offset,
+			       u8 *data, int bytes)
+{
+	int val = 0, i;
+	int ret = -1;
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_MASTER_CTRL,
+			 0x1 << 31 | /* master_cmd_rw, read */
+			 0x1 << 30 | /* master_hb_ignore */
+			 0xf << 24 | /* hb_cmd_val_th */
+			 0xff << 16 | /* master_cmd_count */
+			 0xff << 8 | /* master_cmd_id */
+			 0xff << 0,  /* master_cmd_address */
+			 0x0 << 31 |
+			 0x1 << 30 |
+			 0x4 << 24 |
+			 (bytes - 1) << 16 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	/* wait read from rx done */
+	while (!(val & (1 << 29))) {
+		usleep_range(500, 1500);
+		val = mmio_read(cmdc_map, EARC_TX_CMDC_MASTER_CTRL);
+	}
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 31 | /* apb_write */
+			 0x1 << 30 | /* apb_read */
+			 0x1 << 29 | /* apb_rw_done */
+			 0x1 << 16 | /* hpb_rst_enable */
+			 0xff << 8 | /* apb_rwid */
+			 0xff << 0,   /* apbrw_start_addr */
+			 0x0 << 31 |
+			 0x1 << 30 |
+			 0x0 << 29 |
+			 0x1 << 16 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	for (i = 0; i < bytes; i++)
+		data[i] = mmio_read(cmdc_map, EARC_TX_CMDC_DEVICE_RDATA);
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x1 << 29);
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x0 << 29);
+
+	if (val & (1 << 29))
+		ret = 0;
+
+	return ret;
+}
+
+static int earctx_cmdc_set_reg(struct regmap *cmdc_map, int dev_id, int offset,
+			       u8 *data, int bytes)
+{
+	int val = 0, i;
+	int ret = -1;
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 31 | /* apb_write */
+			 0x1 << 30 | /* apb_read */
+			 0x1 << 29 | /* apb_rw_done */
+			 0x1 << 16 | /* hpb_rst_enable */
+			 0xff << 8 | /* apb_rwid */
+			 0xff << 0,   /* apbrw_start_addr */
+			 0x1 << 31 |
+			 0x0 << 30 |
+			 0x0 << 29 |
+			 0x1 << 16 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	for (i = 0; i < bytes; i++)
+		mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_WDATA,
+				 0xff << 0,
+				 data[i] << 0);
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_MASTER_CTRL,
+			 0x1 << 31 | /* master_cmd_rw, write */
+			 0x1 << 30 | /* master_hb_ignore */
+			 0xf << 24 | /* hb_cmd_cal_th */
+			 0xff << 16 | /* master_cmd_count */
+			 0xff << 8 | /* master_cmd_id */
+			 0xff << 0,  /* master_cmd_address */
+			 0x1 << 31 |
+			 0x1 << 30 |
+			 4 << 24 |
+			 (bytes - 1) << 16 |
+			 dev_id << 8 |
+			 offset << 0);
+
+	/* wait write done */
+	while (!(val & (1 << 29))) {
+		usleep_range(500, 1500);
+		val = mmio_read(cmdc_map, EARC_TX_CMDC_MASTER_CTRL);
+	}
+
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x1 << 29);
+	mmio_update_bits(cmdc_map, EARC_TX_CMDC_DEVICE_ID_CTRL,
+			 0x1 << 29, 0x0 << 29);
+
+	if (val & (1 << 29))
+		ret = 0;
+
+	return ret;
+}
+
+/* Latency */
+void earctx_cmdc_get_latency(struct regmap *cmdc_map, u8 *latency)
+{
+	earctx_cmdc_get_reg(cmdc_map,
+			    STAT_CTRL_DEV_ID,
+			    ERX_LATENCY_REG,
+			    latency,
+			    1);
+}
+
+void earctx_cmdc_set_latency(struct regmap *cmdc_map, u8 *latency)
+{
+	earctx_cmdc_set_reg(cmdc_map,
+			    STAT_CTRL_DEV_ID,
+			    ERX_LATENCY_REQ_REG,
+			    latency,
+			    1);
+}
+
+/* Capability Data Structure, fetch CDS from RX */
+void earctx_cmdc_get_cds(struct regmap *cmdc_map, u8 *cds)
+{
+	earctx_cmdc_get_reg(cmdc_map,
+			    CAP_DEV_ID,
+			    0x0,
+			    cds,
+			    CDS_MAX_BYTES);
 }

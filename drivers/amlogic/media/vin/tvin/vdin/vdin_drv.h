@@ -48,7 +48,7 @@
 /* Ref.2019/04/25: tl1 vdin0 afbce dynamically switch support,
  *                 vpp also should support this function
  */
-#define VDIN_VER "Ref.2019/08/22:add vdin pixel probe feature"
+#define VDIN_VER "ver:2019-1118: 1080p 10bit afbc green screen"
 
 /*the counter of vdin*/
 #define VDIN_MAX_DEVS			2
@@ -86,7 +86,7 @@
 #define VDIN_BYPASS_STOP_CHECK          0x00000001
 #define VDIN_BYPASS_CYC_CHECK           0x00000002
 #define VDIN_BYPASS_VGA_CHECK           0x00000008
-#define VDIN_CANVAS_MAX_CNT				9
+#define VDIN_CANVAS_MAX_CNT	10
 
 /*values of vdin game mode process flag */
 /*enable*/
@@ -139,6 +139,59 @@ enum vdin_color_deeps_e {
 	VDIN_COLOR_DEEPS_9BIT = 9,
 	VDIN_COLOR_DEEPS_10BIT = 10,
 	VDIN_COLOR_DEEPS_12BIT = 12,
+};
+
+/* *********************************************************************** */
+/* *** enum definitions ********************************************* */
+/* *********************************************************************** */
+/*
+ *YUV601:  SDTV BT.601            YCbCr (16~235, 16~240, 16~240)
+ *YUV601F: SDTV BT.601 Full_Range YCbCr ( 0~255,  0~255,  0~255)
+ *YUV709:  HDTV BT.709            YCbCr (16~235, 16~240, 16~240)
+ *YUV709F: HDTV BT.709 Full_Range YCbCr ( 0~255,  0~255,  0~255)
+ *RGBS:                       StudioRGB (16~235, 16~235, 16~235)
+ *RGB:                              RGB ( 0~255,  0~255,  0~255)
+ */
+enum vdin_matrix_csc_e {
+	VDIN_MATRIX_NULL = 0,
+	VDIN_MATRIX_XXX_YUV601_BLACK,/*1*/
+	VDIN_MATRIX_RGB_YUV601,
+	VDIN_MATRIX_GBR_YUV601,
+	VDIN_MATRIX_BRG_YUV601,
+	VDIN_MATRIX_YUV601_RGB,/*5*/
+	VDIN_MATRIX_YUV601_GBR,
+	VDIN_MATRIX_YUV601_BRG,
+	VDIN_MATRIX_RGB_YUV601F,
+	VDIN_MATRIX_YUV601F_RGB,/*9*/
+	VDIN_MATRIX_RGBS_YUV601,/*10*/
+	VDIN_MATRIX_YUV601_RGBS,
+	VDIN_MATRIX_RGBS_YUV601F,
+	VDIN_MATRIX_YUV601F_RGBS,
+	VDIN_MATRIX_YUV601F_YUV601,
+	VDIN_MATRIX_YUV601_YUV601F,/*15*/
+	VDIN_MATRIX_RGB_YUV709,
+	VDIN_MATRIX_YUV709_RGB,
+	VDIN_MATRIX_YUV709_GBR,
+	VDIN_MATRIX_YUV709_BRG,
+	VDIN_MATRIX_RGB_YUV709F,/*20*/
+	VDIN_MATRIX_YUV709F_RGB,
+	VDIN_MATRIX_RGBS_YUV709,
+	VDIN_MATRIX_YUV709_RGBS,
+	VDIN_MATRIX_RGBS_YUV709F,
+	VDIN_MATRIX_YUV709F_RGBS,/*25*/
+	VDIN_MATRIX_YUV709F_YUV709,
+	VDIN_MATRIX_YUV709_YUV709F,
+	VDIN_MATRIX_YUV601_YUV709,
+	VDIN_MATRIX_YUV709_YUV601,
+	VDIN_MATRIX_YUV601_YUV709F,/*30*/
+	VDIN_MATRIX_YUV709F_YUV601,
+	VDIN_MATRIX_YUV601F_YUV709,
+	VDIN_MATRIX_YUV709_YUV601F,
+	VDIN_MATRIX_YUV601F_YUV709F,
+	VDIN_MATRIX_YUV709F_YUV601F,/*35*/
+	VDIN_MATRIX_RGBS_RGB,
+	VDIN_MATRIX_RGB_RGBS,
+	VDIN_MATRIX_RGB2020_YUV2020,
 };
 
 static inline const char *vdin_fmt_convert_str(
@@ -218,6 +271,7 @@ struct vdin_dv_s {
 	unsigned int dv_mem_alloced;
 	struct tvin_dv_vsif_s dv_vsif;/*dolby vsi info*/
 	bool low_latency;
+	bool de_scramble;
 };
 
 struct vdin_afbce_s {
@@ -265,7 +319,7 @@ struct vdin_dev_s {
 	struct vdin_debug_s debug;
 	enum vdin_format_convert_e format_convert;
 	enum vdin_color_deeps_e source_bitdepth;
-
+	enum vdin_matrix_csc_e csc_idx;
 	struct vf_entry *curr_wr_vfe;
 	struct vf_entry *last_wr_vfe;
 	unsigned int curr_field_type;
@@ -285,6 +339,8 @@ struct vdin_dev_s {
 
 	unsigned int h_active;
 	unsigned int v_active;
+	unsigned int h_active_org;/*vdin scaler in*/
+	unsigned int v_active_org;/*vdin scaler in*/
 	unsigned int canvas_h;
 	unsigned int canvas_w;
 	unsigned int canvas_active_w;
@@ -418,6 +474,7 @@ struct vdin_dev_s {
 
 	/*atv non-std signal,force drop the field if previous already dropped*/
 	unsigned int interlace_force_drop;
+	unsigned int skip_disp_md_check;
 };
 
 struct vdin_hist_s {
@@ -438,6 +495,7 @@ extern unsigned int max_ignore_frame_cnt;
 extern unsigned int skip_frame_debug;
 extern unsigned int vdin_drop_cnt;
 extern unsigned int vdin0_afbce_debug_force;
+extern unsigned int dv_de_scramble;
 
 extern struct vframe_provider_s *vf_get_provider_by_name(
 		const char *provider_name);

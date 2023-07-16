@@ -412,7 +412,7 @@ static struct class watch_point_class = {
  * to run, so add __ref to indicate it is okay to call __init function
  * hook_debug_fault_code
  */
-static int __init aml_watch_point_probe(struct platform_device *pdev)
+static int aml_watch_point_probe(struct platform_device *pdev)
 {
 	int r;
 

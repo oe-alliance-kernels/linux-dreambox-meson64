@@ -540,7 +540,7 @@
 		/*1920*1080*4*3 = 0x17BB000*/
 		pxp_mode = <0>; /** 0:normal mode 1:pxp mode */
 		mem_alloc = <1>;
-		logo_addr = "0x3f800000";
+		logo_addr = "0x7f800000";
 		clocks = <&clkc CLKID_VPU_CLKC_MUX>;
 		clock-names = "vpu_clkc";
 	};
@@ -712,7 +712,7 @@
 			/* suffix-name, sync with android audio hal
 			 * what's the dai link used for
 			 */
-			suffix-name = "alsaPORT-spdifb2hdmi";
+			suffix-name = "alsaPORT-spdifb";
 			cpu {
 				sound-dai = <&aml_spdif_b>;
 				system-clock-frequency = <6144000>;

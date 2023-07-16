@@ -18,7 +18,7 @@
 #ifndef __AO_CEC_H__
 #define __AO_CEC_H__
 
-#define CEC_DRIVER_VERSION	"2019/7/11: pretect resume received OTP again msg\n"
+#define CEC_DRIVER_VERSION     "2019/12/01:finetune ARB time, cause cts 9.6.1\n"
 
 #define CEC_FRAME_DELAY		msecs_to_jiffies(400)
 #define CEC_DEV_NAME		"cec"
@@ -82,6 +82,10 @@ enum cecbver {
 
 #define ENABLE_ONE_CEC	1
 #define ENABLE_TWO_CEC	2
+
+#define CEC_B_ARB_TIME 8
+
+#define CEC_MSG_BUFF_MAX	30
 
 /*
 #define CEC_FUNC_MASK			0
@@ -514,6 +518,11 @@ struct dbgflg {
 
 };
 
+struct st_rx_msg {
+	unsigned char len;
+	unsigned char msg[16];
+};
+
 #ifdef CONFIG_AMLOGIC_MEDIA_TVIN_HDMI
 extern unsigned long hdmirx_rd_top(unsigned long addr);
 extern void hdmirx_wr_top(unsigned long addr, unsigned long data);
@@ -577,5 +586,6 @@ extern void cec_logicaddr_add(unsigned int cec_sel, unsigned int l_add);
 extern void cec_clear_all_logical_addr(unsigned int cec_sel);
 extern int dump_cecrx_reg(char *b);
 extern void cec_ip_share_io(u32 share, u32 cec_ip);
+void cec_new_msg_push(void);
 
 #endif	/* __AO_CEC_H__ */

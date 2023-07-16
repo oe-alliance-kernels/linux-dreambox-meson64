@@ -148,6 +148,8 @@ static struct tvafe_user_param_s tvafe_user_param = {
 
 	/*4 is the test result@20171101 on fluke-54200 and DVD*/
 	.skip_vf_num = 4,
+
+	.avout_en = 1,
 };
 
 struct tvafe_user_param_s *tvafe_get_user_param(void)
@@ -263,6 +265,7 @@ static int tvafe_work_mode(bool mode)
 {
 	tvafe_pr_info("%s: %d\n", __func__, mode);
 	tvafe_mode = mode;
+	reinit_scan = true;
 
 	return 0;
 }

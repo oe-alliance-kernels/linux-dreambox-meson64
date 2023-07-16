@@ -889,6 +889,12 @@
 			vad_base {
 				reg = <0x0 0xFF661800 0x0 0x400>;
 			};
+			resampleA_base {
+				reg = <0x0 0xFF661c00 0x0 0x104>;
+			};
+			resampleB_base {
+				reg = <0x0 0xFF664000 0x0 0x104>;
+			};
 		};
 	}; /* end of soc*/
 
@@ -1166,6 +1172,7 @@
 		ic_type = <12>;
 		vend_data: vend_data{ /* Should modified by Customer */
 			vendor_name = "Amlogic"; /* Max Chars: 8 */
+			product_desc = "MBox Meson Ref"; /* Max Chars: 16 */
 			/* standards.ieee.org/develop/regauth/oui/oui.txt */
 			vendor_id = <0x000000>;
 		};
@@ -1503,7 +1510,8 @@
 			"sd_to_ao_uart_pins",
 			"ao_to_sd_uart_pins",
 			"sd_to_ao_jtag_pins",
-			"ao_to_sd_jtag_pins";
+			"ao_to_sd_jtag_pins",
+			"sd_all_pd_pins";
 
 		pinctrl-0 = <&sd_all_pins>;
 		pinctrl-1 = <&sd_clk_cmd_pins>;
@@ -1518,6 +1526,7 @@
 		pinctrl-7 = <&sd_all_pins &sd_to_ao_uart_pins>;
 		pinctrl-8 = <&sd_to_ao_uart_clr_pins
 			&ao_to_sd_uart_pins>;
+		pinctrl-9 = <&sd_all_pd_pins>;
 
 		clocks = <&clkc CLKID_SD_EMMC_B>,
 			<&clkc CLKID_SD_EMMC_B_P0_COMP>,
@@ -1536,7 +1545,7 @@
 			ocr_avail = <0x200080>; /**VDD voltage 3.3 ~ 3.4 */
 			max_req_size = <0x20000>; /**128KB*/
 			gpio_dat3 = <&gpio GPIOC_3 GPIO_ACTIVE_HIGH>;
-			jtag_pin = <&gpio GPIOC_0 GPIO_ACTIVE_HIGH>;
+			jtag_pin = <&gpio GPIOC_1 GPIO_ACTIVE_HIGH>;
 			gpio_cd = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
 			card_type = <5>;
 			/* 3:sdio device(ie:sdio-wifi),
@@ -1951,6 +1960,20 @@
 			bias-pull-up;
 			output-high;
 			drive-strength = <3>;
+		};
+	};
+
+	sd_all_pd_pins:sd_all_pd_pins {
+		mux {
+			groups = "GPIOC_0",
+				   "GPIOC_1",
+				   "GPIOC_2",
+				   "GPIOC_3",
+				   "GPIOC_4",
+				   "GPIOC_5";
+			function = "gpio_periphs";
+			bias-pull-down;
+			output-low;
 		};
 	};
 

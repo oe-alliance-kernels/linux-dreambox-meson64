@@ -178,8 +178,6 @@ struct toddr {
 	enum toddr_src src;
 	unsigned int fifo_id;
 
-	enum resample_src asrc_src_sel;
-
 	int is_lb; /* check whether for loopback */
 	int irq;
 	bool in_use: 1;
@@ -201,6 +199,7 @@ struct toddr_attach {
 	 * check which toddr in use should be attached
 	 */
 	enum toddr_src attach_module;
+	int resample_version;
 };
 
 struct frddr_attach {
@@ -248,6 +247,7 @@ struct toddr *aml_audio_register_toddr(struct device *dev,
 		struct aml_audio_controller *actrl,
 		irq_handler_t handler, void *data);
 int aml_audio_unregister_toddr(struct device *dev, void *data);
+void audio_toddr_irq_enable(struct toddr *to, bool en);
 int aml_toddr_set_buf(struct toddr *to, unsigned int start,
 			unsigned int end);
 int aml_toddr_set_buf_startaddr(struct toddr *to, unsigned int start);

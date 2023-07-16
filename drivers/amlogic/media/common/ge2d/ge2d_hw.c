@@ -288,11 +288,13 @@ void ge2d_canv_config(u32 index, u32 addr, u32 stride)
 {
 	ge2d_log_dbg("ge2d_canv_config:index=%d,addr=%x,stride=%d\n",
 		index, addr, stride);
-	if (index <= 2) {
-		ge2d_reg_write(GE2D_DST1_BADDR_CTRL + index * 2,
-			((addr + 7) >> 3));
-		ge2d_reg_write(GE2D_DST1_STRIDE_CTRL + index * 2,
-			((stride + 7) >> 3));
+	if (ge2d_meson_dev.canvas_status == 1) {
+		if (index <= 2) {
+			ge2d_reg_write(GE2D_DST1_BADDR_CTRL + index * 2,
+				((addr + 7) >> 3));
+			ge2d_reg_write(GE2D_DST1_STRIDE_CTRL + index * 2,
+				((stride + 7) >> 3));
+		}
 	}
 }
 
@@ -940,7 +942,8 @@ void ge2d_set_cmd(struct ge2d_cmd_s *cfg)
 		cfg->hsc_adv_phase = multo & 0xffffff;
 	}
 
-	if (!gaul_filter_used) {
+#if 0
+	if !gaul_filter_used) {
 		rate_w = (widtho * 10) / widthi;
 		rate_h = (heighto * 10) / heighti;
 		if (rate_h == 10) {
@@ -990,6 +993,9 @@ void ge2d_set_cmd(struct ge2d_cmd_s *cfg)
 		ge2d_reg_set_bits(GE2D_GEN_CTRL2, 1, 27, 1);
 		ge2d_reg_set_bits(GE2D_GEN_CTRL2, 1, 25, 1);
 	}
+#else
+    #warning "FIXMEE gaul_filter stuff breaks GE2D_BLIT/GE2D_NOALPHA_BLIT"
+#endif
 	ge2d_log_dbg("rate_w=%d,rate_h=%d\n", rate_w, rate_h);
 	ge2d_reg_set_bits(GE2D_SC_MISC_CTRL,
 			   ((cfg->hsc_div_en << 17) |

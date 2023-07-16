@@ -13812,6 +13812,7 @@ F: arch/arm64/configs/meson64_defconfig
 F: drivers/amlogic/clk/*
 F: drivers/amlogic/media/vout/hdmitx/hdmi_tx_20/hdmi_tx_main.c
 F: drivers/amlogic/pinctrl/*
+F: drivers/amlogic/*
 F: include/dt-bindings/clock/*
 F: include/linux/amlogic/media/sound/*
 F: sound/soc/Kconfig
@@ -13822,7 +13823,6 @@ F: sound/soc/codecs/Kconfig
 F: sound/soc/codecs/Makefile
 F: sound/soc/codecs/amlogic/*
 F: drivers/amlogic/audiodsp/*
-
 
 AMLOGIC PPMGR DRIVER
 M: Guosong Zhou <guosong.zhou@amlogic.com>
@@ -14015,6 +14015,7 @@ F:	include/linux/amlogic/aml_sd_emmc_v3.h
 AMLOGIC Asoc driver
 M: shuai li <shuai.li@amlogic.com>
 M: xing wang <xing.wang@amlogic.com>
+M: Zhe Wang <zhe.wang@amlogic.com>
 F: sound/soc/amlogic/meson/*
 F: sound/soc/amlogic/auge/*
 F: sound/soc/codecs/amlogic/*
@@ -14568,6 +14569,13 @@ M: Qiufang Dai <qiufang.dai@amlogic.com>
 F: arch/arm64/boot/dts/amlogic/g12b_a311d_skt.dts
 F: arch/arm64/boot/dts/amlogic/g12b_a311d_w400.dts
 
+AMLOGIC G12B w200 dts
+M: Qiufang Dai <qiufang.dai@amlogic.com>
+F: arch/arm/boot/dts/amlogic/g12b_a311d_w200_a.dts
+F: arch/arm/boot/dts/amlogic/g12b_a311d_w200.dts
+F: arch/arm64/boot/dts/amlogic/g12b_a311d_w200_a.dts
+F: arch/arm64/boot/dts/amlogic/g12b_a311d_w200.dts
+
 AMLOGIC G12B clock
 M: Qiufang Dai <qiufang.dai@amlogic.com>
 F: drivers/amlogic/clk/g12b/*
@@ -14848,10 +14856,15 @@ AMLOGIC SM1 CLOCK DRIVERS
 M:	Shunzhou Jiang <shunzhou.jiang@amlogic.com>
 F:	drivers/amlogic/clk/sm1/*
 
-AMLOGIC SM1 DTS
+AMLOGIC SM1 AND AXG DTS
 M:	shaochan.liu <shaochan.liu@amlogic.com>
 F:	arch/arm64/boot/dts/amlogic/mesonsm1_skt-panel.dtsi
 F:	arch/arm/boot/dts/amlogic/mesonsm1_skt-panel.dtsi
+F:	arch/arm64/boot/dts/amlogic/mesonaxg_skt-panel.dtsi
+F:	arch/arm/boot/dts/amlogic/mesonaxg_skt-panel.dtsi
+F:	drivers/amlogic/media/vout/spi/
+F:	include/linux/amlogic/media/vout/lcd/lcd_spi.h
+F:	arch/arm64/boot/dts/amlogic/lcd_spi_g12a.dtsi
 
 AMLOGIC SM1 POWER CTRL DRIVERS
 M:	Shunzhou Jiang <shunzhou.jiang@amlogic.com>
@@ -15092,6 +15105,11 @@ F:	arch/arm64/configs/meson64_a64_defconfig
 F:	arch/arm/boot/dts/amlogic/Makefile
 F:	arch/arm64/boot/dts/amlogic/Makefile
 
+AMLOGIC VDAC
+M:      Evoke Zhang <evoke.zhang@amlogic.com>
+F:      drivers/amlogic/media/vout/vdac/vdac_dev.h
+F:	drivers/amlogic/media/vout/vdac/vdac_config.c
+
 AMLOGIC DRM
 M:	Dezhi Kong <dezhi.kong@amlogic.com>
 F:	arch/arm/boot/dts/amlogic/mesonsm1_drm.dtsi
@@ -15159,3 +15177,35 @@ AMLOGIC VAD WAKEUP POWER
 M: Zhiqiang Liang <zhiqiang.liang@amlogic.com>
 F: drivers/amlogic/pm/vad_power.c
 F: drivers/amlogic/pm/vad_power.h
+
+AMLOGIC T962E2 SBR DTS
+M:  Bing Jiang <Bing.Jiang@amlogic.com>
+F:  arch/arm/boot/dts/amlogic/tm2_t962e2_ab311_sbr.dts
+F:  arch/arm64/boot/dts/amlogic/tm2_t962e2_ab311_sbr.dts
+
+AMLOGIC S805Y DTS
+M:  Luan Yuan <luan.yuan@amlogic.com>
+F:  arch/arm/boot/dts/amlogic/gxl_p244_1g.dts
+F:  arch/arm/boot/dts/amlogic/gxl_p244_2g.dts
+F:  arch/arm64/boot/dts/amlogic/gxl_p244_1g.dts
+F:  arch/arm64/boot/dts/amlogic/gxl_p244_2g.dts
+
+AMLOGIC VPP DRIVER
+M:	Brian Zhu <brian.zhu@amlogic.com>
+F: drivers/amlogic/media/video_sink/video_hw.c
+
+AMLOGIC T962X3 DRM DTS
+M:  Dezhi Kong <dezhi.kong@amlogic.com>
+F:  arch/arm/boot/dts/amlogic/tm2_t962x3_ab301_drm.dts
+F:  arch/arm/boot/dts/amlogic/tm2_t962e2_ab311_drm.dts
+F:  arch/arm64/boot/dts/amlogic/tm2_t962x3_ab301_drm.dts
+F:  arch/arm64/boot/dts/amlogic/tm2_t962e2_ab311_drm.dts
+F:  arch/arm64/boot/dts/amlogic/mesontm2_drm.dtsi
+F:  arch/arm/boot/dts/amlogic/mesontm2_drm.dtsi
+
+AMLOGIC TM2 C4A SBR DTS
+M:  Bing Jiang <Bing.Jiang@amlogic.com>
+F:  arch/arm/boot/dts/amlogic/partition_sbr_gva.dtsi
+F:  arch/arm/boot/dts/amlogic/tm2_t962e2_ab311_gva_sbr.dts
+F:  arch/arm64/boot/dts/amlogic/partition_sbr_gva.dtsi
+F:  arch/arm64/boot/dts/amlogic/tm2_t962e2_ab311_gva_sbr.dts

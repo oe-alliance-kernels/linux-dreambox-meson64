@@ -14,7 +14,7 @@
  * more details.
  *
  */
-
+#define SKIP_IO_TRACE
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -35,8 +35,6 @@
 #define N 4
 /*hist bin num*/
 #define HIST_BIN 16
-
-int lc_reg_lmtrat_sigbin = 870;
 
 int amlc_debug;
 #define pr_amlc_dbg(fmt, args...)\
@@ -81,11 +79,15 @@ int *lc_hist;/*12*8*17*/
 static bool lc_malloc_ok;
 /*print one or more frame data*/
 unsigned int lc_hist_prcnt;
+unsigned int lc_node_prcnt;
+unsigned int lc_node_pos_h;
+unsigned int lc_node_pos_v;
 unsigned int lc_curve_prcnt;
 bool lc_curve_fresh = true;
 
 struct ve_lc_curve_parm_s lc_curve_parm_load;
 struct lc_alg_param_s lc_alg_parm;
+struct lc_curve_tune_param_s lc_tune_curve;
 
 /*lc saturation gain, low parameters*/
 /*static unsigned int lc_satur_gain[63] = {
@@ -243,11 +245,11 @@ static void lc_mtx_set(enum lc_mtx_sel_e mtx_sel,
 		break;
 	case LC_MTX_RGB_YUV709L:
 		if (mtx_sel & (INP_MTX | OUTP_MTX)) {
-			WRITE_VPP_REG(matrix_coef00_01, 0xba0273);
-			WRITE_VPP_REG(matrix_coef02_10, 0x3f0f9a);
-			WRITE_VPP_REG(matrix_coef11_12, 0xea701c0);
-			WRITE_VPP_REG(matrix_coef20_21, 0x1c00e6a);
-			WRITE_VPP_REG(matrix_coef22, 0xfd7);
+			WRITE_VPP_REG(matrix_coef00_01, 0x00bb0275);
+			WRITE_VPP_REG(matrix_coef02_10, 0x003f1f99);
+			WRITE_VPP_REG(matrix_coef11_12, 0x1ea601c2);
+			WRITE_VPP_REG(matrix_coef20_21, 0x01c21e67);
+			WRITE_VPP_REG(matrix_coef22, 0x00001fd7);
 			if (bitdepth == 10) {
 				WRITE_VPP_REG(matrix_offset0_1, 0x00400200);
 				WRITE_VPP_REG(matrix_clip, 0x3ff);
@@ -269,15 +271,20 @@ static void lc_mtx_set(enum lc_mtx_sel_e mtx_sel,
 		break;
 	case LC_MTX_YUV709L_RGB:
 		if (mtx_sel & (INP_MTX | OUTP_MTX)) {
-			WRITE_VPP_REG(matrix_coef00_01, 0x12b0000);
-			WRITE_VPP_REG(matrix_coef02_10, 0x1cc012b);
-			WRITE_VPP_REG(matrix_coef11_12, 0xfc90f77);
-			WRITE_VPP_REG(matrix_coef20_21, 0x12b021f);
+			WRITE_VPP_REG(matrix_coef00_01, 0x012a0000);
+			WRITE_VPP_REG(matrix_coef02_10, 0x01cb012a);
+			WRITE_VPP_REG(matrix_coef11_12, 0x1fc90f77);
+			WRITE_VPP_REG(matrix_coef20_21, 0x012a021d);
 			WRITE_VPP_REG(matrix_coef22, 0x0);
 			if (bitdepth == 10) {
-				WRITE_VPP_REG(matrix_pre_offset0_1, 0x00400200);
+				WRITE_VPP_REG(matrix_pre_offset0_1, 0x400200);
 				WRITE_VPP_REG(matrix_clip, 0x3ff);
 			} else {
+				/* for YUV->RGB
+				 * 12bit matrix is not supported actually
+				 * the HW use 8bit conversion by default
+				 * but the shift extra bit only 2bits
+				 */
 				WRITE_VPP_REG(matrix_pre_offset0_1, 0x01000800);
 				WRITE_VPP_REG(matrix_clip, 0xfff);
 			}
@@ -475,8 +482,14 @@ static void lc_stts_en(int enable,
 	}
 
 	WRITE_VPP_REG_BITS(LC_STTS_CTRL0, din_sel, 3, 3);
+	/*lc input probe enable*/
+	WRITE_VPP_REG_BITS(LC_STTS_CTRL0, 1, 10, 1);
 	/*lc hist stts enable*/
 	WRITE_VPP_REG_BITS(LC_STTS_HIST_REGION_IDX, enable, 31, 1);
+	WRITE_VPP_REG_BITS(
+				LC_STTS_BLACK_INFO,
+				lc_tune_curve.lc_reg_thd_black,
+				0, 8);
 }
 
 static void lc_curve_ctrl_config(int enable,
@@ -721,33 +734,45 @@ static void lc_config(int enable,
 				bitdepth, flag, flag_full);
 }
 
-static void tune_nodes_patch(int *omap, int *ihistogram, int reg_lmtrat_sigbin)
+static void tune_nodes_patch_init(void)
+{
+	lc_tune_curve.lc_reg_lmtrat_sigbin = 1024;
+	lc_tune_curve.lc_reg_lmtrat_thd_max = 950;
+	lc_tune_curve.lc_reg_lmtrat_thd_black = 200;
+	lc_tune_curve.lc_reg_thd_black = 0x20;
+	lc_tune_curve.ypkbv_black_thd = 500;
+	lc_tune_curve.yminv_black_thd = 256;
+}
+
+static void tune_nodes_patch(int *omap, int *ihistogram, int i, int j)
 {
 
-	int yminV_org, minBV_org, pkBV_org;
-	int maxBV_org, ymaxV_org, ypkBV_org;
-	int yminV, ymaxV, ypkBV;
+	int yminv_org, minbv_org, pkbv_org;
+	int maxbv_org, ymaxv_org, ypkbv_org;
+	int yminv, ymaxv, ypkbv;
 	int k, alpha, bin_pk, idx_pk, bin_pk2nd;
 	int pksum, pksum_2nd, dist;
 	int amount;
 	int thrd_sglbin;   /*u24 maybe 80% or 90%*/
+	int thrd_sglbin_thd_max;   /*u24 maybe 80% or 90%*/
+	int thrd_sglbin_thd_black;
 	int alpha_sgl;
 	int tmp_peak_val;/*pksum; bin_pk*/
 	int idx_pk2nd;
 
-	yminV_org = omap[0];
-	minBV_org = omap[1];
-	pkBV_org = omap[2];
-	maxBV_org = omap[3];
-	ymaxV_org = omap[4];
-	ypkBV_org = omap[5];
+	yminv_org = omap[0];
+	minbv_org = omap[1];
+	pkbv_org = omap[2];
+	maxbv_org = omap[3];
+	ymaxv_org = omap[4];
+	ypkbv_org = omap[5];
 	if (amlc_debug == 0xa) {
 		pr_info("minBV_org=%d yminV_org=%d pkBV_org=%d ypkBV_org=%d maxBV_org=%d ymaxV_org=%d\n",
-			minBV_org, yminV_org, pkBV_org, ypkBV_org,
-			maxBV_org, ymaxV_org);
+			minbv_org, yminv_org, pkbv_org, ypkbv_org,
+			maxbv_org, ymaxv_org);
 		amlc_debug = 0x0;
 	}
-	idx_pk = (pkBV_org + 32) >> 6;
+	idx_pk = (pkbv_org + 32) >> 6;
 	bin_pk2nd = 0;
 	amount = 0;
 	bin_pk = 0;
@@ -787,8 +812,8 @@ static void tune_nodes_patch(int *omap, int *ihistogram, int reg_lmtrat_sigbin)
 		else
 			alpha = 0;
 	}
-	yminV = yminV_org + (minBV_org - yminV_org) * alpha / 64;
-	ymaxV = ymaxV_org + (maxBV_org - ymaxV_org) * alpha / 64;
+	yminv = yminv_org + (minbv_org - yminv_org) * alpha / 64;
+	ymaxv = ymaxv_org + (maxbv_org - ymaxv_org) * alpha / 64;
 
 	/*2. tune ypkBV if single peak
 	 * int reg_lmtrat_sigbin = 922; 95% 1024*0.95 = 973 / 90% 1024*0.9 = 922
@@ -796,27 +821,57 @@ static void tune_nodes_patch(int *omap, int *ihistogram, int reg_lmtrat_sigbin)
 	 */
 
 	 /*u24 maybe 80% or 90%*/
-	thrd_sglbin = (reg_lmtrat_sigbin * amount) >> 10;
+#if 1
+	thrd_sglbin = (lc_tune_curve.lc_reg_lmtrat_sigbin * amount) >> 10;
+	thrd_sglbin_thd_max =
+		(lc_tune_curve.lc_reg_lmtrat_thd_max * amount) >> 10;
 	alpha_sgl = 0;
 	tmp_peak_val = bin_pk;/*pksum; bin_pk;*/
-	if (tmp_peak_val > thrd_sglbin)
+	if (tmp_peak_val > thrd_sglbin) {
 		alpha_sgl = (tmp_peak_val - thrd_sglbin) * 1024 /
-			(amount - thrd_sglbin);
-	else
-		alpha_sgl = 0;
+			(thrd_sglbin_thd_max - thrd_sglbin);
+		if (alpha_sgl > 1024)
+			alpha_sgl = 1024;
+	}
 
-	ypkBV = ypkBV_org + (pkBV_org - ypkBV_org) * alpha_sgl / 1024;
+	ypkbv = ypkbv_org + (pkbv_org - ypkbv_org) * alpha_sgl / 1024;
+	yminv = yminv_org + (minbv_org - yminv_org) * alpha_sgl / 1024;
+#endif
+	/*3. check black info, global checking
+	 */
+	thrd_sglbin_thd_black =
+		(lc_tune_curve.lc_reg_lmtrat_thd_black * amount) >> 10;
+	if (
+		(lc_tune_curve.lc_reg_black_count >= thrd_sglbin_thd_black) &&
+		(minbv_org < lc_tune_curve.yminv_black_thd)) {
+		yminv = minbv_org;
+	}
 
-	omap[0] = yminV;
-	omap[4] = ymaxV;
-	if (amlc_debug == 0xc)
-		pr_info("yminV_org=%d yminV=%d ymaxV_org=%d ymaxV=%d\n",
-			yminV_org, yminV, ymaxV_org, ymaxV);
-	/* disable single peak patch, will handle it by tunning */
-	/* omap[5] = ypkBV; */
-	if (amlc_debug == 0xc) {
-		pr_info("ypkBV_org=%d ypkBV=%d\n", ypkBV_org, ypkBV);
-		amlc_debug = 0x0;
+	if (
+		(lc_tune_curve.lc_reg_black_count >= thrd_sglbin_thd_black) &&
+		(pkbv_org < lc_tune_curve.ypkbv_black_thd)) {
+		ypkbv = pkbv_org;
+	}
+
+	omap[0] = yminv;
+	omap[4] = ymaxv;
+	omap[5] = ypkbv;
+	if (
+		(amlc_debug == 0xc) &&
+		(lc_node_prcnt > 0)) {
+		if ((i == lc_node_pos_v) && (j == lc_node_pos_h))
+			pr_info(
+			"black_count=%x thd_black=%x amount %x\n",
+			lc_tune_curve.lc_reg_black_count,
+			thrd_sglbin_thd_black, amount);
+
+		if ((i == lc_node_pos_v) && (j == lc_node_pos_h))
+			pr_info(
+			"pos:%d %d yminV_org=%d yminV=%d ymaxV_org=%d ymaxV=%d\n",
+			i, j, yminv_org, yminv, ymaxv_org, ymaxv);
+
+		if ((i == lc_node_pos_v) && (j == lc_node_pos_h))
+			pr_info("ypkBV_org=%d ypkBV=%d\n", ypkbv_org, ypkbv);
 	}
 }
 
@@ -1366,6 +1421,18 @@ static void lc_fw_curve_iir(struct vframe_s *vf,
 	osd_flag_cnt_below[0] = osd_flag_cnt_below[1];
 	osd_flag_cnt_above[0] = osd_flag_cnt_above[1];
 
+	if (
+		(amlc_debug == 0xc) &&
+		(lc_node_prcnt > 0))
+	pr_info(
+	"before iir： ypkBV[%d][%d]=%d, ypkBVpre[%d][%d]=%d\n",
+	lc_node_pos_v,
+	lc_node_pos_h,
+	curve_nodes_cur[(lc_node_pos_v * 12 + lc_node_pos_h) * 6 + 5],
+	lc_node_pos_v,
+	lc_node_pos_h,
+	curve_nodes_pre[(lc_node_pos_v * 12 + lc_node_pos_h) * 6 + 5]);
+
 	/* step 1: osd detect*/
 	osd_detect(
 			osd_flag_cnt_above,/*out*/
@@ -1407,6 +1474,18 @@ static void lc_fw_curve_iir(struct vframe_s *vf,
 				blk_hnum,
 				refresh);
 
+	if (
+		(amlc_debug == 0xc) &&
+		(lc_node_prcnt > 0))
+	pr_info(
+	"after iir： ypkBV[%d][%d]=%d, ypkBVpre[%d][%d]=%d\n",
+	lc_node_pos_v,
+	lc_node_pos_h,
+	curve_nodes_cur[(lc_node_pos_v * 12 + lc_node_pos_h) * 6 + 5],
+	lc_node_pos_v,
+	lc_node_pos_h,
+	curve_nodes_pre[(lc_node_pos_v * 12 + lc_node_pos_h) * 6 + 5]);
+
 	for (i = 0; i < 580; i++)
 		lc_szcurve[i] = curve_nodes_cur[i];/*output*/
 
@@ -1431,7 +1510,12 @@ static void lc_read_region(int blk_vnum, int blk_hnum)
 	int rgb_min, rgb_max;
 	unsigned int temp1, temp2;
 
-	WRITE_VPP_REG_BITS(0x4037, 1, 14, 1);
+	lc_tune_curve.lc_reg_black_count =
+		READ_VPP_REG_BITS(LC_STTS_BLACK_INFO, 8, 24);
+	lc_tune_curve.lc_reg_black_count =
+		lc_tune_curve.lc_reg_black_count / 96;
+
+	WRITE_VPP_REG_BITS(LC_STTS_HIST_REGION_IDX, 1, 14, 1);
 	data32 = READ_VPP_REG(LC_STTS_HIST_START_RD_REGION);
 
 	WRITE_VPP_REG(LC_CURVE_RAM_CTRL, 1);
@@ -1485,12 +1569,11 @@ static void lc_read_region(int blk_vnum, int blk_hnum)
 			/*part3: add tune curve node patch--by vlsi-guopan*/
 			if (tune_curve_en == 2) {
 				tune_nodes_patch(
-					&lc_szcurve[(i * blk_hnum + j) * 6],
-					&lc_hist[(i * blk_hnum + j) * 17],
-					lc_reg_lmtrat_sigbin);
+				&lc_szcurve[(i * blk_hnum + j) * 6],
+				&lc_hist[(i * blk_hnum + j) * 17], i, j);
 			} else if (tune_curve_en == 1) {
 				linear_nodes_patch(
-					&lc_szcurve[(i * blk_hnum + j) * 6]);
+				&lc_szcurve[(i * blk_hnum + j) * 6]);
 			}
 
 		}
@@ -1526,6 +1609,8 @@ void lc_init(int bitdepth)
 	unsigned int height, width;
 	const struct vinfo_s *vinfo = get_current_vinfo();
 	int i, tmp, tmp1, tmp2;
+
+	tune_nodes_patch_init();
 
 	height = vinfo->height;
 	width = vinfo->width;
@@ -1661,6 +1746,14 @@ void lc_process(struct vframe_s *vf,
 	}
 	if (set_lc_curve(0, 1))
 		pr_amlc_dbg("%s: set lc curve fail", __func__);
+
+	if (
+		(amlc_debug == 0xc) &&
+		(lc_node_prcnt > 0)) {
+		lc_node_prcnt--;
+		if (lc_node_prcnt == 0)
+			amlc_debug = 0x0;
+	}
 
 	lc_flag = 0xff;
 }

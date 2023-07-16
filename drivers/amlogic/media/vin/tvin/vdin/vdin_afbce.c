@@ -122,12 +122,30 @@ void vdin_write_mif_or_afbce(struct vdin_dev_s *devp,
 		return;
 
 	if (sel == VDIN_OUTPUT_TO_MIF) {
+		if (is_meson_tm2_cpu()) {
+			rdma_write_reg_bits(devp->rdma_handle,
+				VDIN_TOP_DOUBLE_CTRL, WR_SEL_VDIN0_NOR,
+				MIF0_OUT_SEL_BIT, VDIN_REORDER_SEL_WID);
+			rdma_write_reg_bits(devp->rdma_handle,
+				VDIN_TOP_DOUBLE_CTRL, WR_SEL_DIS,
+				AFBCE_OUT_SEL_BIT, VDIN_REORDER_SEL_WID);
+		}
+
 		rdma_write_reg_bits(devp->rdma_handle, AFBCE_ENABLE, 0, 8, 1);
 		rdma_write_reg_bits(devp->rdma_handle, VDIN_MISC_CTRL,
 			0, VDIN0_OUT_AFBCE_BIT, 1);
 		rdma_write_reg_bits(devp->rdma_handle, VDIN_MISC_CTRL,
 			1, VDIN0_OUT_MIF_BIT, 1);
 	} else if (sel == VDIN_OUTPUT_TO_AFBCE) {
+		if (is_meson_tm2_cpu()) {
+			rdma_write_reg_bits(devp->rdma_handle,
+				VDIN_TOP_DOUBLE_CTRL, WR_SEL_DIS,
+				MIF0_OUT_SEL_BIT, VDIN_REORDER_SEL_WID);
+			rdma_write_reg_bits(devp->rdma_handle,
+				VDIN_TOP_DOUBLE_CTRL, WR_SEL_VDIN0_NOR,
+				AFBCE_OUT_SEL_BIT, VDIN_REORDER_SEL_WID);
+		}
+
 		rdma_write_reg_bits(devp->rdma_handle, VDIN_MISC_CTRL,
 			0, VDIN0_OUT_MIF_BIT, 1);
 		rdma_write_reg_bits(devp->rdma_handle, VDIN_MISC_CTRL,
@@ -205,6 +223,29 @@ void vdin_afbce_update(struct vdin_dev_s *devp)
 		(uncmp_bits & 0xf));
 }
 
+bool vdin_chk_is_comb_mode(struct vdin_dev_s *devp)
+{
+	enum vdin_format_convert_e vdinout_fmt;
+	int reg_fmt444_rgb_en = false;
+	int reg_fmt444_comb = false;
+
+	vdinout_fmt = devp->format_convert;
+	if ((vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_RGB) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_GBR) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_BRG) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_RGB))
+		reg_fmt444_rgb_en = true;
+
+	if (((vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_YUV444) ||
+	     (vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_YUV444) ||
+	      reg_fmt444_rgb_en) && (devp->h_active > 2048))
+		reg_fmt444_comb = true;
+	else
+		reg_fmt444_comb = false;
+
+	return reg_fmt444_comb;
+}
+
 void vdin_afbce_config(struct vdin_dev_s *devp)
 {
 	int hold_line_num = VDIN_AFBCE_HOLD_LINE_NUM;
@@ -231,6 +272,8 @@ void vdin_afbce_config(struct vdin_dev_s *devp)
 	int enc_win_end_h;//input scope
 	int enc_win_bgn_v;//input scope
 	int enc_win_end_v;//input scope
+	int reg_fmt444_rgb_en = 0;
+	enum vdin_format_convert_e vdinout_fmt;
 
 	if (!devp->afbce_info)
 		return;
@@ -246,31 +289,37 @@ void vdin_afbce_config(struct vdin_dev_s *devp)
 	enc_win_bgn_v = 0;
 	enc_win_end_v = devp->v_active - 1;
 
-	blk_out_end_h   =  enc_win_bgn_h      >> 5 ;//output blk scope
-	blk_out_bgn_h   = (enc_win_end_h+31)  >> 5 ;//output blk scope
-	blk_out_end_v   =  enc_win_bgn_v      >> 2 ;//output blk scope
-	blk_out_bgn_v   = (enc_win_end_v + 3) >> 2 ;//output blk scope
+	blk_out_end_h	=  enc_win_bgn_h      >> 5 ;//output blk scope
+	blk_out_bgn_h	= (enc_win_end_h + 31)  >> 5 ;//output blk scope
+	blk_out_end_v	=  enc_win_bgn_v      >> 2 ;//output blk scope
+	blk_out_bgn_v	= (enc_win_end_v + 3) >> 2 ;//output blk scope
 
-	if ((devp->prop.dest_cfmt == TVIN_YUV444) && (devp->h_active > 2048))
-		reg_fmt444_comb = 1;
-	else
-	    reg_fmt444_comb = 0;
+	pr_info("%s format_convert:%d\n", __func__, devp->format_convert);
+	vdinout_fmt = devp->format_convert;
+	if ((vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_RGB) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_GBR) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_BRG) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_RGB))
+		reg_fmt444_rgb_en = 1;
 
-	if ((devp->prop.dest_cfmt == TVIN_NV12) ||
-		(devp->prop.dest_cfmt == TVIN_NV21)) {
-		reg_format_mode = 2;
+	reg_fmt444_comb = vdin_chk_is_comb_mode(devp);
+	if ((vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_NV12) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_NV21) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_NV12) ||
+	    (vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_NV21)) {
+		reg_format_mode = 2;/*420*/
 	    sblk_num = 12;
-	} else if ((devp->prop.dest_cfmt == TVIN_YUV422) ||
-		(devp->prop.dest_cfmt == TVIN_YUYV422) ||
-		(devp->prop.dest_cfmt == TVIN_YVYU422) ||
-		(devp->prop.dest_cfmt == TVIN_UYVY422) ||
-		(devp->prop.dest_cfmt == TVIN_VYUY422)) {
-		reg_format_mode = 1;
+	} else if ((vdinout_fmt == VDIN_FORMAT_CONVERT_YUV_YUV422) ||
+		(vdinout_fmt == VDIN_FORMAT_CONVERT_RGB_YUV422) ||
+		(vdinout_fmt == VDIN_FORMAT_CONVERT_GBR_YUV422) ||
+		(vdinout_fmt == VDIN_FORMAT_CONVERT_BRG_YUV422)) {
+		reg_format_mode = 1;/*422*/
 	    sblk_num = 16;
 	} else {
-		reg_format_mode = 0;
+		reg_format_mode = 0;/*444*/
 	    sblk_num = 24;
 	}
+
 	uncmp_bits = devp->source_bitdepth;
 
 	//bit size of uncompression mode
@@ -299,7 +348,7 @@ void vdin_afbce_config(struct vdin_dev_s *devp)
 
 	W_VCBUS(AFBCE_BLK_SIZE_IN,
 		((hblksize_out & 0x1fff) << 16) |  // out blk hsize
-		((vblksize_out & 0x1fff) << 0)    // out blk vsize
+		((vblksize_out & 0x1fff) << 0)	  // out blk vsize
 		);
 
 	//head addr of compressed data
@@ -325,12 +374,12 @@ void vdin_afbce_config(struct vdin_dev_s *devp)
 
 	W_VCBUS(AFBCE_MIF_HOR_SCOPE,
 		((blk_out_bgn_h & 0x3ff) << 16) |  // scope of out blk hsize
-		((blk_out_end_h & 0xfff) << 0)    // scope of out blk vsize
+		((blk_out_end_h & 0xfff) << 0)	  // scope of out blk vsize
 		);
 
 	W_VCBUS(AFBCE_MIF_VER_SCOPE,
 		((blk_out_bgn_v & 0x3ff) << 16) |  // scope of out blk hsize
-		((blk_out_end_v & 0xfff) << 0)    // scope of out blk vsize
+		((blk_out_end_v & 0xfff) << 0)	  // scope of out blk vsize
 		);
 
 	W_VCBUS(AFBCE_FORMAT,
@@ -338,18 +387,35 @@ void vdin_afbce_config(struct vdin_dev_s *devp)
 		(uncmp_bits & 0xf) << 4 |
 		(uncmp_bits & 0xf));
 
-	W_VCBUS(AFBCE_DEFCOLOR_1,
-		((def_color_3 & 0xfff) << 12) |  // def_color_a
-		((def_color_0 & 0xfff) << 0)    // def_color_y
-		);
+	if (reg_fmt444_rgb_en) {
+		W_VCBUS(AFBCE_DEFCOLOR_1,
+			((0 & 0xfff) << 12) |  // def_color_a
+			((0 & 0xfff) << 0)    // def_color_y
+			);
 
-	W_VCBUS(AFBCE_DEFCOLOR_2,
-		((def_color_2 & 0xfff) << 12) |  // def_color_v
-		((def_color_1 & 0xfff) << 0)    // def_color_u
-		);
+		W_VCBUS(AFBCE_DEFCOLOR_2,
+			((0 & 0xfff) << 12) |  // def_color_v
+			((0 & 0xfff) << 0)    // def_color_u
+			);
+	} else {
+		W_VCBUS(AFBCE_DEFCOLOR_1,
+			((def_color_3 & 0xfff) << 12) |  // def_color_a
+			((def_color_0 & 0xfff) << 0)	// def_color_y
+			);
 
+		W_VCBUS(AFBCE_DEFCOLOR_2,
+			((def_color_2 & 0xfff) << 12) |  // def_color_v
+			((def_color_1 & 0xfff) << 0)	// def_color_u
+			);
+	}
 	W_VCBUS_BIT(AFBCE_MMU_RMIF_CTRL4, devp->afbce_info->table_paddr, 0, 32);
 	W_VCBUS_BIT(AFBCE_MMU_RMIF_SCOPE_X, cur_mmu_used, 0, 12);
+	/*for almost uncompressed pattern,garbage at bottom
+	 *(h_active * v_active * bytes per pixel + 3M) / page_size - 1
+	 *where 3M is the rest bytes of block,since every block must not be\
+	 *separated by 2 pages
+	 */
+	W_VCBUS_BIT(AFBCE_MMU_RMIF_SCOPE_X, 0x1c4f, 16, 13);
 
 	W_VCBUS_BIT(AFBCE_ENABLE, 1, 12, 1); //set afbce pulse mode
 	W_VCBUS_BIT(AFBCE_ENABLE, 0, 8, 1);//disable afbce

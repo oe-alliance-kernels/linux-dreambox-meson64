@@ -944,6 +944,7 @@ static int aml_pdm_dai_trigger(
 			pm_audio_set_suspend(false);
 			/* VAD switch to alsa buffer */
 			vad_update_buffer(0);
+			audio_toddr_irq_enable(p_pdm->tddr, true);
 			break;
 		}
 
@@ -966,6 +967,7 @@ static int aml_pdm_dai_trigger(
 				&& pm_audio_is_suspend()) {
 				/* switch to VAD buffer */
 				vad_update_buffer(1);
+				audio_toddr_irq_enable(p_pdm->tddr, false);
 				break;
 			}
 			pdm_enable(0);
@@ -1205,13 +1207,13 @@ static int aml_pdm_platform_probe(struct platform_device *pdev)
 	}
 
 	/* pinmux */
-	p_pdm->pdm_pins = devm_pinctrl_get_select(&pdev->dev, "pdm_pins");
-	if (IS_ERR(p_pdm->pdm_pins)) {
-		p_pdm->pdm_pins = NULL;
-		dev_err(&pdev->dev,
-			"Can't get pdm pinmux\n");
-		return PTR_ERR(p_pdm->pdm_pins);
-	}
+//	p_pdm->pdm_pins = devm_pinctrl_get_select(&pdev->dev, "pdm_pins");
+//	if (IS_ERR(p_pdm->pdm_pins)) {
+//		p_pdm->pdm_pins = NULL;
+//		dev_err(&pdev->dev,
+//			"Can't get pdm pinmux\n");
+//		return PTR_ERR(p_pdm->pdm_pins);
+//	}
 
 	p_pdm->sysclk_srcpll = devm_clk_get(&pdev->dev, "sysclk_srcpll");
 	if (IS_ERR(p_pdm->sysclk_srcpll)) {

@@ -22,8 +22,7 @@
 #include "regs.h"
 #include "iomap.h"
 
-static unsigned int
-get_tdmin_id_from_lb_src(enum datalb_src lb_src)
+static unsigned int get_tdmin_id_from_lb_src(enum datalb_src lb_src)
 {
 	return lb_src % TDMINLB_PAD_TDMINA;
 }
@@ -136,6 +135,14 @@ void lb_set_datain_src(int id, int src)
 	audiobus_update_bits(reg, 0x7 << 0, src);
 }
 
+void lb_set_mode(int id, enum lb_out_rate rate)
+{
+	int offset = EE_AUDIO_LB_B_CTRL0 - EE_AUDIO_LB_A_CTRL0;
+	int reg = EE_AUDIO_LB_A_CTRL0 + offset * id;
+
+	audiobus_update_bits(reg, 0x1 << 30, rate << 30);
+}
+
 void lb_set_datain_cfg(int id, struct data_cfg *datain_cfg)
 {
 	int offset = EE_AUDIO_LB_B_CTRL0 - EE_AUDIO_LB_A_CTRL0;
@@ -186,8 +193,9 @@ void lb_set_datalb_cfg(int id, struct data_cfg *datalb_cfg)
 
 	if (datalb_cfg->ch_ctrl_switch) {
 		audiobus_update_bits(reg,
-			0x1 << 29 | 0x7 << 13 | 0x1f << 8
-			| 0x1f << 3 | 0x1 << 1,
+			0x3 << 30 | 0x1 << 29 | 0x7 << 13 |
+			0x1f << 8 | 0x1f << 3 | 0x1 << 1,
+			datalb_cfg->resample_enable << 30 |
 			datalb_cfg->ext_signed << 29 |
 			datalb_cfg->type       << 13 |
 			datalb_cfg->m          << 8  |

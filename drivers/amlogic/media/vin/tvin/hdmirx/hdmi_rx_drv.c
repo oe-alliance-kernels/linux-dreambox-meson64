@@ -50,6 +50,7 @@
 /*#include <linux/amlogic/amports/vframe_provider.h>*/
 /*#include <linux/amlogic/amports/vframe_receiver.h>*/
 #include <linux/amlogic/media/frame_provider/tvin/tvin.h>
+#include <linux/amlogic/media/vout/vdac_dev.h>
 /*#include <linux/amlogic/amports/vframe.h>*/
 #include <linux/of_gpio.h>
 #ifdef CONFIG_AMLOGIC_LEGACY_EARLY_SUSPEND
@@ -268,13 +269,29 @@ static unsigned int first_bit_set(uint32_t data)
  */
 unsigned int rx_get_bits(unsigned int data, unsigned int mask)
 {
-	return (data & mask) >> first_bit_set(mask);
+	unsigned int fstbs_rtn;
+	unsigned int rtn_val;
+
+	fstbs_rtn = first_bit_set(mask);
+	if (fstbs_rtn < 32)
+		rtn_val = (data & mask) >> fstbs_rtn;
+	else
+		rtn_val = 0;
+	return rtn_val;
 }
 
 unsigned int rx_set_bits(unsigned int data,
 	unsigned int mask, unsigned int value)
 {
-	return ((value << first_bit_set(mask)) & mask) | (data & ~mask);
+	unsigned int fstbs_rtn;
+	unsigned int rtn_val;
+
+	fstbs_rtn = first_bit_set(mask);
+	if (fstbs_rtn < 32)
+		rtn_val = ((value << fstbs_rtn) & mask) | (data & ~mask);
+	else
+		rtn_val = 0;
+	return rtn_val;
 }
 
 bool hdmirx_repeat_support(void)
@@ -312,8 +329,7 @@ int hdmirx_dec_open(struct tvin_frontend_s *fe, enum tvin_port_e port)
 	devp->param.port = port;
 
 	/* should enable the adc ref signal for audio pll */
-	vdac_enable(1, 0x10);
-
+	/* vdac_enable(1, VDAC_MODULE_AUDIO_OUT); */
 	hdmirx_open_port(port);
 	rx.open_fg = 1;
 	rx_pr("%s port:%x ok nosignal:%d\n", __func__, port, rx.no_signal);
@@ -372,7 +388,7 @@ void hdmirx_dec_close(struct tvin_frontend_s *fe)
 	 */
 	/* For txl,also need to keep bandgap always on:SWPL-1224 */
 	/* if (rx.chip_id == CHIP_ID_TXL) */
-		/* vdac_enable(0, 0x10); */
+		/* vdac_enable(0, VDAC_MODULE_AUDIO_OUT); */
 	/* open_flage = 0; */
 	rx.open_fg = 0;
 	devp = container_of(fe, struct hdmirx_dev_s, frontend);
@@ -1024,18 +1040,18 @@ static long hdmirx_ioctl(struct file *file, unsigned int cmd,
 	}
 	case HDMI_IOC_HDCP_ON:
 		hdcp_enable = 1;
-		rx_set_cur_hpd(0);
+		rx_set_cur_hpd(0, 4);
 		/*fsm_restart();*/
 		break;
 	case HDMI_IOC_HDCP_OFF:
 		hdcp_enable = 0;
-		rx_set_cur_hpd(0);
+		rx_set_cur_hpd(0, 4);
 		hdmirx_hw_config();
 		/*fsm_restart();*/
 		break;
 	case HDMI_IOC_EDID_UPDATE:
 		if (rx.open_fg) {
-			rx_set_cur_hpd(0);
+			rx_set_cur_hpd(0, 4);
 			edid_update_flag = 1;
 		}
 		#if 0
@@ -1050,7 +1066,7 @@ static long hdmirx_ioctl(struct file *file, unsigned int cmd,
 				rx_pr("cec_off,ignore edid update\n");
 		}
 		#endif
-		hdmi_rx_top_edid_update();
+		/*hdmi_rx_top_edid_update();*/
 		fsm_restart();
 		rx_pr("*update edid*\n");
 		break;
@@ -1281,7 +1297,7 @@ int rx_pr(const char *fmt, ...)
 			else
 				break;
 
-		strncpy(buf + 5, fmt + pos, (sizeof(buf) - 5));
+		strlcpy(buf + 5, fmt + pos, (sizeof(buf) - 5));
 	} else
 		strcpy(buf, fmt);
 	if (fmt[strlen(fmt) - 1] == '\n')
@@ -1515,7 +1531,7 @@ static ssize_t ksvlist_store(struct device *dev,
 	/* unsigned char t_tmp[3]; */
 	cnt = count;
 	/* t_tmp[2] = '\0'; */
-	rx_pr("dw hdcp %d,%d\n", cnt, sizeof(struct hdcp14_topo_s));
+	rx_pr("dw hdcp %d,%lu\n", cnt, sizeof(struct hdcp14_topo_s));
 	/*for(i = 0;i < count/2;i++) {
 	 *	memcpy(t_tmp, buf + i*2, 2);
 	 *	if (kstrtoul(t_tmp, 16, &tmp))
@@ -1693,6 +1709,60 @@ static ssize_t earc_cap_ds_store(struct device *dev,
 	return count;
 }
 
+static ssize_t edid_select_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	return sprintf(buf, "edid select for portD~A: 0x%x\n",
+		edid_select);
+}
+
+static ssize_t edid_select_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf,
+				 size_t count)
+{
+	int ret;
+	unsigned int tmp;
+	int i;
+	/* PCB port number for UI HDMI1/2/3/4 */
+	unsigned char pos[E_PORT_NUM] = {0};
+
+	/* edid selection for UI HDMI4/3/2/1, eg 0x0120
+	 * value 2: auto, 1: EDID2.0, 0: EDID1.4
+	 */
+	ret = kstrtouint(buf, 16, &tmp);
+	if (ret)
+		return -EINVAL;
+
+	for (i = 0; i < E_PORT_NUM; i++) {
+		switch ((port_map >> (i * 4)) & 0xF) {
+		case 1:
+			pos[0] = i;
+			break;
+		case 2:
+			pos[1] = i;
+			break;
+		case 3:
+			pos[2] = i;
+			break;
+		case 4:
+			pos[3] = i;
+			break;
+		default:
+			break;
+		}
+	}
+	/* edid select for portD/C/B/A */
+	edid_select = ((tmp & 0xF) << (pos[0] * 4)) |
+		(((tmp >> 4) & 0xF) << (pos[1] * 4)) |
+		(((tmp >> 8) & 0xF) << (pos[2] * 4)) |
+		(((tmp >> 12) & 0xF) << (pos[3] * 4));
+	rx_pr("edid select for UI HDMI4~1: 0x%x, for portD~A: 0x%x\n",
+	      tmp, edid_select);
+	return count;
+}
+
 static DEVICE_ATTR(debug, 0644, hdmirx_debug_show, hdmirx_debug_store);
 static DEVICE_ATTR(edid, 0644, hdmirx_edid_show, hdmirx_edid_store);
 static DEVICE_ATTR(key, 0644, hdmirx_key_show, hdmirx_key_store);
@@ -1709,6 +1779,7 @@ static DEVICE_ATTR(hw_info, 0644, hw_info_show, hw_info_store);
 static DEVICE_ATTR(edid_dw, 0644, edid_dw_show, edid_dw_store);
 static DEVICE_ATTR(ksvlist, 0644, ksvlist_show, ksvlist_store);
 static DEVICE_ATTR(earc_cap_ds, 0644, earc_cap_ds_show, earc_cap_ds_store);
+static DEVICE_ATTR(edid_select, 0644, edid_select_show, edid_select_store);
 
 static int hdmirx_add_cdev(struct cdev *cdevp,
 		const struct file_operations *fops,
@@ -1836,19 +1907,19 @@ void rx_emp_resource_allocate(struct device *dev)
 {
 	if (rx.chip_id >= CHIP_ID_TL1) {
 		/* allocate buffer */
-		if (!rx.empbuff.storeA)
-			rx.empbuff.storeA =
+		if (!rx.empbuff.store_a)
+			rx.empbuff.store_a =
 				kmalloc(EMP_BUFFER_SIZE, GFP_KERNEL);
 		else
 			rx_pr("malloc emp buffer err\n");
 
-		if (rx.empbuff.storeA)
-			rx.empbuff.storeB =
-				rx.empbuff.storeA + (EMP_BUFFER_SIZE >> 1);
+		if (rx.empbuff.store_a)
+			rx.empbuff.store_b =
+				rx.empbuff.store_a + (EMP_BUFFER_SIZE >> 1);
 		else
 			rx_pr("emp buff err-0\n");
-		rx_pr("pktbuffa=0x%p\n", rx.empbuff.storeA);
-		rx_pr("pktbuffb=0x%p\n", rx.empbuff.storeB);
+		rx_pr("pktbuffa=0x%p\n", rx.empbuff.store_a);
+		rx_pr("pktbuffb=0x%p\n", rx.empbuff.store_b);
 		rx.empbuff.dump_mode = DUMP_MODE_EMP;
 		/* allocate buffer for hw access*/
 		rx.empbuff.pg_addr =
@@ -1862,8 +1933,10 @@ void rx_emp_resource_allocate(struct device *dev)
 			rx.empbuff.p_addr_b =
 				rx.empbuff.p_addr_a + (EMP_BUFFER_SIZE >> 1);
 			//page_address
-			rx_pr("buffa paddr=0x%x\n", rx.empbuff.p_addr_a);
-			rx_pr("buffb paddr=0x%x\n", rx.empbuff.p_addr_b);
+			rx_pr("buffa paddr=0x%p\n",
+			      (void *)rx.empbuff.p_addr_a);
+			rx_pr("buffb paddr=0x%p\n",
+			      (void *)rx.empbuff.p_addr_b);
 		} else {
 			rx_pr("emp buff err-1\n");
 		}
@@ -1909,7 +1982,7 @@ void rx_tmds_resource_allocate(struct device *dev)
 		else
 			rx_pr("allocate tmds data buff fail\n");
 		rx.empbuff.dump_mode = DUMP_MODE_TMDS;
-		rx_pr("buffa paddr=0x%x\n", rx.empbuff.p_addr_a);
+		rx_pr("buffa paddr=0x%p\n", (void *)rx.empbuff.p_addr_a);
 		#if 0
 		/*clear buffer for test*/
 		for (i = 0; i < 10; i++) {
@@ -2242,6 +2315,11 @@ static int hdmirx_probe(struct platform_device *pdev)
 		rx_pr("hdmirx: fail to create earc_cap_ds file\n");
 		goto fail_create_earc_cap_ds;
 	}
+	ret = device_create_file(hdevp->dev, &dev_attr_edid_select);
+	if (ret < 0) {
+		rx_pr("hdmirx: fail to create edid_select file\n");
+		goto fail_create_edid_select;
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
@@ -2375,6 +2453,14 @@ static int hdmirx_probe(struct platform_device *pdev)
 			clk_prepare_enable(hdevp->axi_clk);
 			clk_rate = clk_get_rate(hdevp->axi_clk);
 		}
+		/* */
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "term_lvl",
+							&phy_term_lel);
+		if (ret) {
+			rx_pr("term_lvl not found.\n");
+			phy_term_lel = 0;
+		}
 	} else {
 		hdevp->audmeas_clk = clk_get(&pdev->dev, "hdmirx_audmeas_clk");
 		if (IS_ERR(hdevp->audmeas_clk))
@@ -2439,20 +2525,16 @@ static int hdmirx_probe(struct platform_device *pdev)
 		rx.arc_port = 0x1;
 		rx_pr("not find arc_port, portB by default\n");
 	}
-	ret = of_property_read_u32(pdev->dev.of_node,
-				   "scdc_force_en",
-				   &scdc_force_en);
-	if (ret) {
-		/* enable scdc accroding to edid version */
-		scdc_force_en = 0;
-		rx_pr("not find scdc_force_en, disable by default\n");
-	}
 
 	ret = of_reserved_mem_device_init(&(pdev->dev));
 	if (ret != 0)
 		rx_pr("warning: no rev cmd mem\n");
 	rx_emp_resource_allocate(&(pdev->dev));
+	aml_phy_get_trim_val();
+	fs_mode_init();
 	hdmirx_hw_probe();
+	if ((rx.chip_id >= CHIP_ID_TL1) && phy_tdr_en)
+		term_cal_en = (!is_ft_trim_done());
 	hdmirx_init_params();
 	hdmirx_switch_pinmux(&(pdev->dev));
 #ifdef CONFIG_AMLOGIC_LEGACY_EARLY_SUSPEND
@@ -2474,6 +2556,8 @@ fail_kmalloc_pd_fifo:
 	return ret;
 fail_get_resource_irq:
 	return ret;
+fail_create_edid_select:
+	device_remove_file(hdevp->dev, &dev_attr_edid_select);
 fail_create_earc_cap_ds:
 	device_remove_file(hdevp->dev, &dev_attr_earc_cap_ds);
 fail_create_ksvlist:
@@ -2534,6 +2618,7 @@ static int hdmirx_remove(struct platform_device *pdev)
 	unregister_early_suspend(&hdmirx_early_suspend_handler);
 #endif
 	mutex_destroy(&hdevp->rx_lock);
+	device_remove_file(hdevp->dev, &dev_attr_edid_select);
 	device_remove_file(hdevp->dev, &dev_attr_debug);
 	device_remove_file(hdevp->dev, &dev_attr_edid);
 	device_remove_file(hdevp->dev, &dev_attr_key);

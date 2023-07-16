@@ -139,6 +139,7 @@ enum tuner_type {
 	AM_TUNER_SI2159 = 12,
 	AM_TUNER_R842 = 13,
 	AM_TUNER_ATBM2040 = 14,
+	AM_TUNER_ATBM253 = 15,
 };
 
 /* For configure different tuners */

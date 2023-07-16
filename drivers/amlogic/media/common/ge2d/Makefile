@@ -13,3 +13,4 @@ ccflags-y += -Iinclude/linux/media/ge2d/
 ccflags-y += -Idrivers/amlogic/media/osd/
 ccflags-y += -I$(srctree)/drivers/staging/android
 ccflags-y += -Idrivers/amlogic/media/common/ion_dev/
+ccflags-y += -Wno-error=cpp

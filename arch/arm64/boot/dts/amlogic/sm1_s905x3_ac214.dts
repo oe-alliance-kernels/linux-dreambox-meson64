@@ -346,7 +346,7 @@
 		ts0_invert = <0>;
 		interrupts = <0 23 1
 		0 5 1
-		0 21 1
+		0 53 1
 		0 19 1
 		0 25 1
 		0 18 1
@@ -371,6 +371,23 @@
 		dev_name = "ionvideo";
 		status = "okay";
 	};
+
+	amlvideo2_0 {
+		compatible = "amlogic, amlvideo2";
+		dev_name = "amlvideo2";
+		status = "okay";
+		amlvideo2_id = <0>;
+		cma_mode = <1>;
+	};
+
+	amlvideo2_1 {
+		compatible = "amlogic, amlvideo2";
+		dev_name = "amlvideo2";
+		status = "okay";
+		amlvideo2_id = <1>;
+		cma_mode = <1>;
+	};
+
 	vm0 {
 		compatible = "amlogic, vm";
 		memory-region = <&vm0_cma_reserved>;
@@ -434,7 +451,7 @@
 	unifykey{
 		compatible = "amlogic, unifykey";
 		status = "ok";
-		unifykey-num = <17>;
+		unifykey-num = <18>;
 		unifykey-index-0 = <&keysn_0>;
 		unifykey-index-1 = <&keysn_1>;
 		unifykey-index-2 = <&keysn_2>;
@@ -452,6 +469,7 @@
 		unifykey-index-14= <&keysn_14>;
 		unifykey-index-15= <&keysn_15>;
 		unifykey-index-16= <&keysn_16>;
+		unifykey-index-17= <&keysn_17>;
 
 		keysn_0: key_0{
 			key-name = "usid";
@@ -538,6 +556,11 @@
 		};
 		keysn_16:key_16{
 			key-name = "netflix_mgkid";
+			key-device = "secure";
+			key-permit = "read","write","del";
+		};
+		keysn_17:key_17{
+			key-name = "attestationdevidbox";// attest dev id box
 			key-device = "secure";
 			key-permit = "read","write","del";
 		};
@@ -989,51 +1012,51 @@
 
 		opp00 {
 			opp-hz = /bits/ 64 <100000000>;
-			opp-microvolt = <730000>;
+			opp-microvolt = <760000>;
 		};
 		opp01 {
 			opp-hz = /bits/ 64 <250000000>;
-			opp-microvolt = <730000>;
+			opp-microvolt = <760000>;
 		};
 		opp02 {
 			opp-hz = /bits/ 64 <500000000>;
-			opp-microvolt = <730000>;
+			opp-microvolt = <760000>;
 		};
 		opp03 {
 			opp-hz = /bits/ 64 <667000000>;
-			opp-microvolt = <750000>;
+			opp-microvolt = <780000>;
 		};
 		opp04 {
 			opp-hz = /bits/ 64 <1000000000>;
-			opp-microvolt = <770000>;
+			opp-microvolt = <800000>;
 		};
 		opp05 {
 			opp-hz = /bits/ 64 <1200000000>;
-			opp-microvolt = <780000>;
+			opp-microvolt = <810000>;
 		};
 		opp06 {
 			opp-hz = /bits/ 64 <1404000000>;
-			opp-microvolt = <790000>;
+			opp-microvolt = <820000>;
 		};
 		opp07 {
 			opp-hz = /bits/ 64 <1500000000>;
-			opp-microvolt = <800000>;
+			opp-microvolt = <830000>;
 		};
 		opp08 {
 			opp-hz = /bits/ 64 <1608000000>;
-			opp-microvolt = <810000>;
+			opp-microvolt = <860000>;
 		};
 		opp09 {
 			opp-hz = /bits/ 64 <1704000000>;
-			opp-microvolt = <850000>;
+			opp-microvolt = <900000>;
 		};
 		opp10 {
 			opp-hz = /bits/ 64 <1800000000>;
-			opp-microvolt = <900000>;
+			opp-microvolt = <940000>;
 		};
 		opp11 {
 			opp-hz = /bits/ 64 <1908000000>;
-			opp-microvolt = <950000>;
+			opp-microvolt = <1000000>;
 		};
 	};
 
@@ -1136,7 +1159,7 @@
 	status = "ok";
 	pinctrl-names="default";
 	pinctrl-0=<&i2c3_master_pins2>;
-	clock-frequency = <100000>; /* default 100k */
+	clock-frequency = <300000>; /* default 100k */
 
 	/* for ref board */
 	ad82584f_62: ad82584f_62@62 {
@@ -1746,7 +1769,7 @@
 			 "MMC_CAP_DRIVER_TYPE_D";
 		caps2 = "MMC_CAP2_HS200", "MMC_CAP2_HS400";
 		f_min = <400000>;
-		f_max = <166666666>;
+		f_max = <200000000>;
 	};
 };
 

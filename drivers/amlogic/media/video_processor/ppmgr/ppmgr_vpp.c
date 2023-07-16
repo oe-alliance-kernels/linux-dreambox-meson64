@@ -1217,12 +1217,6 @@ static void process_vf_rotate(struct vframe_s *vf,
 		pp_vf->dec_frame = vf;
 
 	if (vf->type & VIDTYPE_COMPRESS) {
-		if ((vf->bitdepth == (
-			BITDEPTH_Y10 |
-			BITDEPTH_U10 |
-			BITDEPTH_V10))
-			&& (!ppmgr_device.debug_10bit_frame))
-			pp_vf->dec_frame = vf;
 		if (vf->canvas0Addr != (u32)-1) {
 			canvas_copy(vf->canvas0Addr & 0xff,
 				ppmgr_src_canvas[0]);
@@ -2395,6 +2389,7 @@ static int ppmgr_task(void *data)
 	struct ppframe_s *pp_local = NULL;
 	struct ge2d_context_s *context = create_ge2d_work_queue();
 	struct config_para_ex_s ge2d_config;
+	struct ppframe_s *pp_vf;
 #ifdef PPMGR_TB_DETECT
 	bool first_frame = true;
 	int first_frame_type = 0;
@@ -2429,19 +2424,24 @@ static int ppmgr_task(void *data)
 		if (scaler_pos_changed) {
 			scaler_pos_changed = 0;
 			vf = get_cur_dispbuf();
-			if (!is_valid_ppframe(to_ppframe(vf)))
+			if (IS_ERR_OR_NULL(vf))
+				continue;
+			pp_vf = to_ppframe(vf);
+			if (IS_ERR_OR_NULL(pp_vf))
+				continue;
+			if (!is_valid_ppframe(pp_vf))
 				continue;
 			if ((vf->type & VIDTYPE_COMPRESS) &&
 				(vf->plane_num < 1) &&
 				(vf->canvas0Addr == (u32)-1)) {
 				continue;
 			}
-			if (vf) {
-				if (process_vf_adjust(vf,
-						context,
-						&ge2d_config) >= 0)
-					EnableVideoLayer();
-			}
+
+			if (process_vf_adjust(vf,
+					      context,
+					      &ge2d_config) >= 0)
+				EnableVideoLayer();
+
 
 			vf = vfq_peek(&q_ready);
 			while (vf) {
@@ -3447,7 +3447,7 @@ static void tb_detect_init(void)
 static int tb_task(void *data)
 {
 	int tbff_flag;
-	struct tbff_stats *pReg = NULL;
+	struct tbff_stats *tb_reg = NULL;
 	ulong y5fld[5];
 	int is_top;
 	int inited = 0;
@@ -3458,15 +3458,15 @@ static int tb_task(void *data)
 	sched_setscheduler(current, SCHED_FIFO, &param);
 
 	inter_flag = 0;
-	pReg = kmalloc(sizeof(struct tbff_stats), GFP_KERNEL);
-	if (IS_ERR_OR_NULL(pReg)) {
-		PPMGRVPP_INFO("pReg malloc fail\n");
+	tb_reg = kmalloc(sizeof(*tb_reg), GFP_KERNEL);
+	if (!tb_reg) {
+		PPMGRVPP_INFO("tb_reg malloc fail\n");
 		return 0;
 	}
-	memset(pReg, 0, sizeof(struct tbff_stats));
+	memset(tb_reg, 0, sizeof(struct tbff_stats));
 
 	if (gfunc)
-		gfunc->stats_init(pReg, TB_DETECT_H, TB_DETECT_W);
+		gfunc->stats_init(tb_reg, TB_DETECT_H, TB_DETECT_W);
 	allow_signal(SIGTERM);
 	while (down_interruptible(&tb_sem) == 0) {
 		if (kthread_should_stop() || tb_quit_flag)
@@ -3487,8 +3487,9 @@ static int tb_task(void *data)
 		y5fld[3] = detect_buf[tb_buff_rptr + 1].vaddr;
 		y5fld[4] = detect_buf[tb_buff_rptr].vaddr;
 		if (gfunc) {
-			if (IS_ERR_OR_NULL(pReg)) {
-				PPMGRVPP_INFO("pReg is NULL!\n");
+			if (IS_ERR_OR_NULL(tb_reg)) {
+				kfree(tb_reg);
+				PPMGRVPP_INFO("tb_reg is NULL!\n");
 				return 0;
 			}
 			for (i = 0; i < 5; i++) {
@@ -3503,13 +3504,13 @@ static int tb_task(void *data)
 				inter_flag = 0;
 				continue;
 			}
-			gfunc->stats_get(y5fld, pReg);
+			gfunc->stats_get(y5fld, tb_reg);
 		}
 		is_top = is_top ^ 1;
 		tbff_flag = -1;
 		if (gfunc)
 			tbff_flag = gfunc->fwalg_get(
-				pReg, is_top,
+				tb_reg, is_top,
 				(tb_first_frame_type == 3) ? 0 : 1,
 				tb_buff_rptr,
 				atomic_read(&tb_skip_flag),
@@ -3556,7 +3557,7 @@ static int tb_task(void *data)
 		}
 	}
 	atomic_set(&tb_run_flag, 0);
-	kfree(pReg);
+	kfree(tb_reg);
 	while (!kthread_should_stop())
 		usleep_range(9000, 10000);
 	return 0;

@@ -201,6 +201,19 @@ int aml_audio_unregister_toddr(struct device *dev, void *data)
 	return ret;
 }
 
+void audio_toddr_irq_enable(struct toddr *to, bool en)
+{
+	if (!to || !to->in_use || to->irq < 0)
+		return;
+
+	mutex_lock(&ddr_mutex);
+	if (en)
+		enable_irq(to->irq);
+	else
+		disable_irq_nosync(to->irq);
+	mutex_unlock(&ddr_mutex);
+}
+
 static inline unsigned int
 	calc_toddr_address(unsigned int reg, unsigned int base)
 {
@@ -428,8 +441,8 @@ void aml_toddr_set_format(struct toddr *to, struct toddr_fmt *fmt)
 
 	reg = calc_toddr_address(EE_AUDIO_TODDR_A_CTRL0, reg_base);
 	aml_audiobus_update_bits(actrl, reg,
-		0x7 << 24 | 0x1fff << 3,
-		fmt->endian << 24 | fmt->type << 13 |
+		0x1 << 27 | 0x7 << 24 | 0x1fff << 3,
+		0x1 << 27 | fmt->endian << 24 | fmt->type << 13 |
 		fmt->msb << 8 | fmt->lsb << 3);
 }
 
@@ -593,6 +606,7 @@ static void aml_toddr_set_resample(struct toddr *to, bool enable)
 	reg = calc_toddr_address(EE_AUDIO_TODDR_A_CTRL0, reg_base);
 	aml_audiobus_update_bits(actrl,	reg, 1<<30, !!enable<<30);
 }
+
 /* tl1 after */
 static void aml_toddr_set_resample_ab(struct toddr *to,
 		enum resample_idx index, bool enable)
@@ -604,8 +618,7 @@ static void aml_toddr_set_resample_ab(struct toddr *to,
 	reg = calc_toddr_address(EE_AUDIO_TODDR_A_CTRL1, reg_base);
 	if (index == RESAMPLE_A)
 		aml_audiobus_update_bits(actrl,	reg, 1 << 27, !!enable << 27);
-	else if (index == RESAMPLE_B)
-		aml_audiobus_update_bits(actrl,	reg, 1 << 26, !!enable << 26);
+
 }
 
 static void aml_resample_enable(
@@ -616,24 +629,6 @@ static void aml_resample_enable(
 	if (!to || !p_attach_resample) {
 		pr_err("%s(), NULL pointer.", __func__);
 		return;
-	}
-
-	if (to->chipinfo
-			&& to->chipinfo->asrc_src_sel_ctrl) {
-		/* fix asrc_src_sel */
-		switch (p_attach_resample->attach_module) {
-		case LOOPBACK_A:
-			to->asrc_src_sel = ASRC_LOOPBACK_A;
-			break;
-		case LOOPBACK_B:
-			to->asrc_src_sel = ASRC_LOOPBACK_B;
-			break;
-		default:
-			to->asrc_src_sel = to->fifo_id;
-			break;
-		}
-
-		/*to->asrc_src_sel = p_attach_resample->attach_module;*/
 	}
 
 	pr_info("toddr %d selects data to %s resample_%c for module:%s\n",
@@ -670,20 +665,27 @@ static void aml_resample_enable(
 				endian << 24 | toddr_type << 13);
 		}
 
-		resample_format_set(p_attach_resample->id,
-			to->channels, bitwidth);
-
-		/* toddr index for resample */
-		if (to->chipinfo
-			&& to->chipinfo->asrc_src_sel_ctrl)
-			resample_src_select_ab(p_attach_resample->id,
-				to->asrc_src_sel);
-		else
-			resample_src_select(to->fifo_id);
+		if (p_attach_resample->resample_version == 1) {
+			if (p_attach_resample->id == RESAMPLE_A) {
+				new_resampleA_set_format(
+						p_attach_resample->id,
+						to->channels, bitwidth);
+			}
+			new_resample_src_select(p_attach_resample->id,
+						to->fifo_id);
+		} else if (p_attach_resample->resample_version == 0) {
+			/* toddr index for resample */
+			if (to->chipinfo &&
+			    to->chipinfo->asrc_src_sel_ctrl) {
+				resample_src_select_ab(p_attach_resample->id,
+						       to->fifo_id);
+			} else {
+				resample_src_select(to->fifo_id);
+			}
+			resample_format_set(p_attach_resample->id,
+					    to->channels, bitwidth);
+		}
 	}
-
-	/* resample enable or not */
-	resample_enable(p_attach_resample->id, enable);
 
 	/* select reample data */
 	if (to->chipinfo
@@ -691,6 +693,12 @@ static void aml_resample_enable(
 		aml_toddr_set_resample_ab(to, p_attach_resample->id, enable);
 	else
 		aml_toddr_set_resample(to, enable);
+
+	/* resample enable or disable */
+	if (p_attach_resample->resample_version == 1)
+		new_resample_enable(p_attach_resample->id, enable);
+	else if (p_attach_resample->resample_version == 0)
+		resample_enable(p_attach_resample->id, enable);
 }
 
 void aml_set_resample(enum resample_idx id,
@@ -698,7 +706,6 @@ void aml_set_resample(enum resample_idx id,
 {
 	struct toddr_attach *p_attach_resample;
 	struct toddr *to;
-	bool update_running = false;
 
 	if (id == RESAMPLE_A)
 		p_attach_resample = &attach_resample_a;
@@ -708,6 +715,7 @@ void aml_set_resample(enum resample_idx id,
 	p_attach_resample->enable        = enable;
 	p_attach_resample->id            = id;
 	p_attach_resample->attach_module = resample_module;
+	p_attach_resample->resample_version = get_resample_version_id(id);
 
 	mutex_lock(&ddr_mutex);
 	to = fetch_toddr_by_src(
@@ -717,26 +725,7 @@ void aml_set_resample(enum resample_idx id,
 		goto exit;
 	}
 
-	if (enable) {
-		if ((p_attach_resample->status == DISABLED)
-			|| (p_attach_resample->status == READY)) {
-
-			if (!to) {
-				p_attach_resample->status = READY;
-			} else {
-				p_attach_resample->status = RUNNING;
-				update_running = true;
-				pr_info("Capture with resample\n");
-			}
-		}
-	} else {
-		if (p_attach_resample->status == RUNNING)
-			update_running = true;
-
-		p_attach_resample->status = DISABLED;
-	}
-
-	if (update_running && to)
+	if (p_attach_resample->status == RUNNING)
 		aml_resample_enable(to, p_attach_resample, enable);
 
 exit:
@@ -750,32 +739,24 @@ exit:
 static void aml_check_resample(struct toddr *to, bool enable)
 {
 	struct toddr_attach *p_attach_resample;
-	bool is_module_resample;
-	bool resample_b_check = false;
+	int i;
 
 	p_attach_resample = &attach_resample_a;
 
-start_check:
-	is_module_resample = false;
-	if (p_attach_resample->enable
-		&& (to->src == p_attach_resample->attach_module))
-		is_module_resample = true;
+	for (i = 0; i < get_resample_module_num(); i++) {
+		if (to->src == p_attach_resample->attach_module) {
+			/* save toddr status */
+			if (enable)
+				p_attach_resample->status = RUNNING;
+			else
+				p_attach_resample->status = DISABLED;
 
-	/* resample in enable */
-	if (is_module_resample) {
-		if (enable)
-			p_attach_resample->status = RUNNING;
-		else
-			p_attach_resample->status = DISABLED;
-
-		aml_resample_enable(to, p_attach_resample, enable);
-	}
-
-	if ((!resample_b_check)
-		&& (get_resample_module_num() == 2)) {
+			/*if disable toddr, disable attached resampler*/
+			if (p_attach_resample->enable)
+				aml_resample_enable(to, p_attach_resample,
+						    enable);
+		}
 		p_attach_resample = &attach_resample_b;
-		resample_b_check = true;
-		goto start_check;
 	}
 }
 

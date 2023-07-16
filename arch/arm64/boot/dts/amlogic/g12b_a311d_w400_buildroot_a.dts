@@ -534,6 +534,47 @@
 		tv_mode = <0>;/*1:enabel ;0:disable*/
 	};
 
+        mesonstream {
+                compatible = "amlogic, codec, streambuf";
+                dev_name = "mesonstream";
+                status = "okay";
+                clocks = <&clkc CLKID_DOS_PARSER
+                        &clkc CLKID_DEMUX
+                        &clkc CLKID_AHB_ARB0
+                        &clkc CLKID_DOS
+			&clkc CLKID_CLK81
+                        &clkc CLKID_VDEC_MUX
+                        &clkc CLKID_HCODEC_MUX
+                        &clkc CLKID_HEVC_MUX
+                        &clkc CLKID_HEVCF_MUX>;
+                clock-names = "parser_top",
+                        "demux",
+                        "ahbarb0",
+                        "vdec",
+			"clk_81",
+                        "clk_vdec_mux",
+                        "clk_hcodec_mux",
+                        "clk_hevc_mux",
+                        "clk_hevcb_mux";
+        };
+
+	dvb {
+		compatible = "amlogic, dvb";
+		dev_name = "dvb";
+		status = "okay";
+		/*"parallel","serial","disable"*/
+		ts0 = "serial";
+		ts0_control = <0>;
+		ts0_invert = <0>;
+		clocks = <&clkc CLKID_CLK81>;
+		clock-names = "clk_81";
+		interrupts = <0 23 1
+			0 5 1
+			0 53 1>;
+		interrupt-names = "demux0_irq",
+			"demux1_irq",
+			"demux2_irq";
+	};
 	/* Audio Related start */
 	pdm_codec:dummy{
 		#sound-dai-cells = <0>;
@@ -679,9 +720,9 @@
 			/* suffix-name, sync with android audio hal
 			 * what's the dai link used for
 			 */
-			suffix-name = "alsaPORT-spdif";
+			suffix-name = "alsaPORT-HDMI";
 			cpu {
-				sound-dai = <&aml_spdif>;
+				sound-dai = <&aml_spdif_b>;
 				system-clock-frequency = <6144000>;
 			};
 			codec {
@@ -936,7 +977,7 @@
 		clocks = <&clkaudio CLKID_AUDIO_MCLK_A
 				&clkc CLKID_MPLL0>;
 		clock-names = "mclk", "clk_srcpll";
-		pinctrl-names = "tdm_pins";
+		pinctrl-names = "default";
 		pinctrl-0 = <&tdmout_a &tdmin_a>;
 	};
 
@@ -952,7 +993,7 @@
 				&clkaudio CLKID_AUDIO_SPDIFOUT_CTRL>;
 		clock-names = "mclk", "clk_srcpll",
 			"samesource_srcpll", "samesource_clk";
-		pinctrl-names = "tdm_pins";
+		pinctrl-names = "default";
 		pinctrl-0 = <&tdmb_mclk &tdmout_b &tdmin_b>;
 		mclk_pad = <0>;  /* 0: mclk_0; 1: mclk_1 */
 		/*
@@ -976,7 +1017,7 @@
 		clocks = <&clkaudio CLKID_AUDIO_MCLK_C
 				&clkc CLKID_MPLL2>;
 		clock-names = "mclk", "clk_srcpll";
-		pinctrl-names = "tdm_pins";
+		pinctrl-names = "default";
 		pinctrl-0 = <&tdmc_mclk &tdmout_c &tdmin_c>;
 		mclk_pad = <1>;  /* 0: mclk_0; 1: mclk_1 */
 	};
@@ -1018,7 +1059,7 @@
 				<GIC_SPI 151 IRQ_TYPE_EDGE_RISING>;
 
 		interrupt-names = "irq_spdifin";
-		pinctrl-names = "spdif_pins",
+		pinctrl-names = "default",
 					"spdif_pins_mute";
 		pinctrl-0 = <&spdifout &spdifin>;
 		pinctrl-1 = <&spdifout_a_mute>;
@@ -1032,7 +1073,7 @@
 				&clkaudio CLKID_AUDIO_SPDIFOUTB_CTRL>;
 		clock-names = "sysclk",
 				"gate_spdifout", "clk_spdifout";
-		status = "disabled";
+		status = "okay";
 	};
 	aml_pdm: pdm {
 		compatible = "amlogic, g12a-snd-pdm";
@@ -1047,7 +1088,7 @@
 			"dclk_srcpll",
 			"pdm_dclk",
 			"pdm_sysclk";
-		pinctrl-names = "pdm_pins";
+		pinctrl-names = "default";
 		pinctrl-0 = <&pdmin>;
 		filter_mode = <1>; /* mode 0~4, defalut:1 */
 		status = "okay";
@@ -1481,3 +1522,6 @@
 	pinctrl-0 = <&spicc1_pins>;
 	cs-gpios = <&gpio GPIOH_6 0>;
 };
+
+#include "dreambox-partitions.dtsi"
+#include "dreambox-rc.dtsi"

@@ -107,6 +107,26 @@ enum tx_hd_hdp_mux {
 	GPIOW_5
 };
 
+enum device_id {
+	/* Capabilities Data Structure */
+	CAP_DEV_ID = 0xA0,
+	/* eARC status and latency control registers */
+	STAT_CTRL_DEV_ID = 0x74
+};
+
+enum reg_offset {
+	/* eARC Status Register Offset */
+	EARCRX_STAT_REG = 0xD0,
+	EARCTX_STAT_REG = 0xD1,
+	/* eARC Latency Registers Offset */
+	ERX_LATENCY_REG = 0xD2,
+	ERX_LATENCY_REQ_REG = 0xD3
+};
+
+#define CDS_MAX_BYTES 256
+
+void earcrx_pll_refresh(struct regmap *top_map);
+void earcrx_cmdc_int_mask(struct regmap *top_map);
 void earcrx_cmdc_init(struct regmap *top_map);
 void earcrx_cmdc_arc_connect(struct regmap *cmdc_map, bool init);
 void earcrx_cmdc_hpd_detect(struct regmap *cmdc_map, bool st);
@@ -123,6 +143,7 @@ void earcrx_enable(struct regmap *cmdc_map,
 void earctx_cmdc_int_mask(struct regmap *top_map);
 
 void earctx_cmdc_init(struct regmap *top_map);
+void earctx_cmdc_set_timeout(struct regmap *cmdc_map, int no_timeout);
 void earctx_cmdc_arc_connect(struct regmap *cmdc_map, bool init);
 void earctx_cmdc_hpd_detect(struct regmap *top_map,
 			    struct regmap *cmdc_map,
@@ -132,6 +153,8 @@ void earctx_dmac_set_format(struct regmap *dmac_map,
 			    int frddr_idx, int msb, int frddr_type);
 void earctx_set_channel_status_info(struct regmap *dmac_map,
 				    struct iec958_chsts *chsts);
+enum cmdc_st earctx_cmdc_get_state(struct regmap *cmdc_map);
+enum attend_type earctx_cmdc_get_attended_type(struct regmap *cmdc_map);
 void earctx_cdmc_clr_irqs(struct regmap *top_map, int clr);
 int earctx_cdmc_get_irqs(struct regmap *top_map);
 void earctx_dmac_clr_irqs(struct regmap *top_map, int clr);
@@ -140,5 +163,14 @@ void earctx_enable(struct regmap *top_map,
 		   struct regmap *cmdc_map,
 		   struct regmap *dmac_map,
 		   bool enable);
+
+void earcrx_cmdc_get_latency(struct regmap *cmdc_map, u8 *latency);
+void earcrx_cmdc_set_latency(struct regmap *cmdc_map, u8 *latency);
+void earcrx_cmdc_get_cds(struct regmap *cmdc_map, u8 *cds);
+void earcrx_cmdc_set_cds(struct regmap *cmdc_map, u8 *cds);
+
+void earctx_cmdc_get_latency(struct regmap *cmdc_map, u8 *latency);
+void earctx_cmdc_set_latency(struct regmap *cmdc_map, u8 *latency);
+void earctx_cmdc_get_cds(struct regmap *cmdc_map, u8 *cds);
 
 #endif

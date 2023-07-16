@@ -232,6 +232,7 @@ static int lcd_power_step_print(struct lcd_config_s *pconf, int status,
 		case LCD_POWER_TYPE_CPU:
 		case LCD_POWER_TYPE_PMU:
 		case LCD_POWER_TYPE_WAIT_GPIO:
+		case LCD_POWER_TYPE_CLK_SS:
 			n = lcd_debug_info_len(len + offset);
 			len += snprintf((buf+len), n,
 				"%d: type=%d, index=%d, value=%d, delay=%d\n",
@@ -1531,6 +1532,114 @@ static void lcd_screen_black(void)
 	lcd_mute_setting(1);
 }
 
+static unsigned int lcd_prbs_flag;
+static unsigned int lcd_prbs_cnt;
+static void aml_lcd_prbs_test(unsigned int s)
+{
+	struct aml_lcd_drv_s *lcd_drv = aml_lcd_get_driver();
+	unsigned int reg0, reg1;
+	unsigned int val1, val2, cnt = 0, timeout;
+	int i, ret;
+
+	switch (lcd_drv->data->chip_type) {
+	case LCD_CHIP_GXL:
+	case LCD_CHIP_GXM:
+	case LCD_CHIP_AXG:
+	case LCD_CHIP_G12A:
+	case LCD_CHIP_G12B:
+	case LCD_CHIP_SM1:
+		LCDERR("not support\n");
+		return;
+	case LCD_CHIP_TXL:
+	case LCD_CHIP_TXLX:
+		reg0 = HHI_LVDS_TX_PHY_CNTL0;
+		reg1 = HHI_LVDS_TX_PHY_CNTL1;
+		break;
+	default:
+		reg0 = HHI_LVDS_TX_PHY_CNTL0_TL1;
+		reg1 = HHI_LVDS_TX_PHY_CNTL1_TL1;
+		break;
+	}
+
+	lcd_hiu_write(reg0, 0xfff20c4);
+	lcd_hiu_setb(reg0, 1, 12, 1);
+	val1 = lcd_hiu_getb(reg1, 12, 12);
+
+	s = (s > 1800) ? 1800 : s;
+	timeout = s * 200;
+	while (lcd_prbs_flag) {
+		if (s > 1) { /* when s=1, means always run */
+			if (cnt++ >= timeout)
+				break;
+		}
+		usleep_range(5000, 5001);
+		ret = 1;
+		for (i = 0; i < 5; i++) {
+			val2 = lcd_hiu_getb(reg1, 12, 12);
+			if (val2 != val1) {
+				ret = 0;
+				break;
+			}
+		}
+		if (ret) {
+			LCDERR("lcd prbs check error 1, val:0x%03x, cnt:%d\n",
+			       val2, lcd_prbs_cnt);
+			return;
+		}
+		val1 = val2;
+		if (lcd_hiu_getb(reg1, 0, 12)) {
+			LCDERR("lcd prbs check error 2, cnt:%d\n",
+			       lcd_prbs_cnt);
+			return;
+		}
+		if (lcd_prbs_cnt >= 0xffffffff)
+			lcd_prbs_cnt = 0;
+		else
+			lcd_prbs_cnt++;
+	}
+
+	lcd_prbs_cnt = 0;
+	LCDPR("lcd prbs check ok\n");
+}
+
+static ssize_t lcd_debug_prbs_show(struct class *class,
+				   struct class_attribute *attr, char *buf)
+{
+	return sprintf(buf, "lcd prbs flag: %d, cnt: %d\n",
+		       lcd_prbs_flag, lcd_prbs_cnt);
+}
+
+static ssize_t lcd_debug_prbs_store(struct class *class,
+				    struct class_attribute *attr,
+				    const char *buf, size_t count)
+{
+	int ret = 0;
+	unsigned int temp = 1;
+
+	ret = kstrtouint(buf, 10, &temp);
+	if (ret) {
+		LCDERR("invalid data\n");
+		return -EINVAL;
+	}
+	if (temp) {
+		if (lcd_prbs_flag) {
+			LCDPR("lcd prbs check is already running\n");
+			return count;
+		}
+		lcd_prbs_cnt = 0;
+		lcd_prbs_flag = 1;
+		aml_lcd_prbs_test(temp);
+	} else {
+		if (lcd_prbs_flag == 0) {
+			LCDPR("lcd prbs check is already stopped\n");
+			return count;
+		}
+		lcd_prbs_flag = 0;
+	}
+
+	return count;
+}
+
 static void lcd_vinfo_update(void)
 {
 	struct aml_lcd_drv_s *lcd_drv = aml_lcd_get_driver();
@@ -2210,6 +2319,25 @@ static ssize_t lcd_debug_enable_store(struct class *class,
 
 	return count;
 }
+
+static void lcd_mipi_set_state(int state)
+{
+	struct aml_lcd_drv_s *lcd_drv = aml_lcd_get_driver();
+
+	if (lcd_drv) {
+		if (state) {
+			mutex_lock(&lcd_drv->power_mutex);
+			aml_lcd_notifier_call_chain(LCD_EVENT_POWER_ON, NULL);
+			lcd_if_enable_retry(lcd_drv->lcd_config);
+			mutex_unlock(&lcd_drv->power_mutex);
+		} else {
+			mutex_lock(&lcd_drv->power_mutex);
+			aml_lcd_notifier_call_chain(LCD_EVENT_POWER_OFF, NULL);
+			mutex_unlock(&lcd_drv->power_mutex);
+		}
+	}
+}
+EXPORT_SYMBOL(lcd_mipi_set_state);
 
 static ssize_t lcd_debug_resume_show(struct class *class,
 		struct class_attribute *attr, char *buf)
@@ -3158,6 +3286,7 @@ static struct class_attribute lcd_debug_class_attrs[] = {
 	__ATTR(clk,         0644, lcd_debug_clk_show, lcd_debug_clk_store),
 	__ATTR(test,        0644, lcd_debug_test_show, lcd_debug_test_store),
 	__ATTR(mute,        0644, lcd_debug_mute_show, lcd_debug_mute_store),
+	__ATTR(prbs,        0644, lcd_debug_prbs_show, lcd_debug_prbs_store),
 	__ATTR(reg,         0200, NULL, lcd_debug_reg_store),
 	__ATTR(dither,      0644,
 		lcd_debug_dither_show, lcd_debug_dither_store),
@@ -3433,6 +3562,14 @@ static ssize_t lcd_tcon_debug_show(struct class *class,
 		struct class_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%s\n", lcd_debug_tcon_usage_str);
+}
+
+static ssize_t lcd_tcon_status_show(struct class *class,
+		struct class_attribute *attr, char *buf)
+{
+	struct aml_lcd_drv_s *lcd_drv = aml_lcd_get_driver();
+
+	return sprintf(buf, "%d\n", lcd_drv->tcon_status);
 }
 
 static ssize_t lcd_ttl_debug_store(struct class *class,
@@ -4463,6 +4600,8 @@ static struct class_attribute lcd_debug_class_attrs_mlvds[] = {
 		lcd_phy_debug_show, lcd_phy_debug_store),
 	__ATTR(tcon,   0644,
 		lcd_tcon_debug_show, lcd_tcon_debug_store),
+	__ATTR(tcon_status,   0644,
+	       lcd_tcon_status_show, NULL),
 	__ATTR(null,   0644, NULL, NULL),
 };
 
@@ -4473,6 +4612,8 @@ static struct class_attribute lcd_debug_class_attrs_p2p[] = {
 		lcd_phy_debug_show, lcd_phy_debug_store),
 	__ATTR(tcon,   0644,
 		lcd_tcon_debug_show, lcd_tcon_debug_store),
+	__ATTR(tcon_status,   0644,
+	       lcd_tcon_status_show, NULL),
 	__ATTR(null,   0644, NULL, NULL),
 };
 

@@ -1665,6 +1665,8 @@ static int too_many_isolated(struct pglist_data *pgdat, int file,
 {
 #ifdef CONFIG_AMLOGIC_CMA
 	signed long inactive, isolated;
+	long cma_isolated = 0;
+	struct zone *zone;
 #else
 	unsigned long inactive, isolated;
 #endif /* CONFIG_AMLOGIC_CMA */
@@ -1684,7 +1686,9 @@ static int too_many_isolated(struct pglist_data *pgdat, int file,
 	}
 
 #ifdef CONFIG_AMLOGIC_CMA
-	isolated -= node_page_state(pgdat, NR_CMA_ISOLATED);
+	for (zone = pgdat->node_zones; zone; zone = next_zone(zone))
+		cma_isolated += zone_page_state(zone, NR_CMA_ISOLATED);
+	isolated -= cma_isolated;
 #endif /* CONFIG_AMLOGIC_CMA */
 	/*
 	 * GFP_NOIO/GFP_NOFS callers are allowed to isolate more pages, so they
@@ -1698,7 +1702,7 @@ static int too_many_isolated(struct pglist_data *pgdat, int file,
 #ifdef CONFIG_AMLOGIC_CMA
 	WARN_ONCE(isolated > inactive,
 		  "isolated:%ld, cma:%ld, inactive:%ld, mask:%x, file:%d\n",
-		  isolated, node_page_state(pgdat, NR_CMA_ISOLATED),
+		  isolated, cma_isolated,
 		  inactive, sc->gfp_mask, file);
 #endif /* CONFIG_AMLOGIC_CMA */
 	return isolated > inactive;

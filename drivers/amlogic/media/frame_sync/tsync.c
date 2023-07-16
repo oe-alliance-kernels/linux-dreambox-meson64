@@ -136,8 +136,10 @@ static const char * const tsync_mode_str[] = {
 
 static DEFINE_SPINLOCK(lock);
 static enum tsync_mode_e tsync_mode = TSYNC_MODE_AMASTER;
+EXPORT_SYMBOL(tsync_mode);
 static enum tsync_stat_e tsync_stat = TSYNC_STAT_PCRSCR_SETUP_NONE;
 static int tsync_enable;	/* 1; */
+EXPORT_SYMBOL(tsync_enable);
 static int apts_discontinue;
 static int vpts_discontinue;
 static int pts_discontinue;
@@ -746,6 +748,7 @@ void tsync_avevent_locked(enum avevent_e event, u32 param)
 	switch (event) {
 	case VIDEO_START:
 		tsync_video_started = 1;
+		tsync_set_av_state(0, 2);
 
 	//set tsync mode to vmaster to avoid video block caused
 	// by avpts-diff too much
@@ -803,6 +806,7 @@ void tsync_avevent_locked(enum avevent_e event, u32 param)
 
 	case VIDEO_STOP:
 		tsync_stat = TSYNC_STAT_PCRSCR_SETUP_NONE;
+		tsync_set_av_state(0, 3);
 		timestamp_vpts_set(0);
 		timestamp_pcrscr_set(0);
 		timestamp_pcrscr_enable(0);
@@ -948,6 +952,7 @@ void tsync_avevent_locked(enum avevent_e event, u32 param)
 		break;
 	case AUDIO_START:
 		/* reset discontinue var */
+		tsync_set_av_state(1, AUDIO_START);
 		tsync_set_sync_adiscont(0);
 		tsync_set_sync_adiscont_diff(0);
 		tsync_set_sync_vdiscont(0);
@@ -1010,6 +1015,7 @@ void tsync_avevent_locked(enum avevent_e event, u32 param)
 		break;
 
 	case AUDIO_STOP:
+		tsync_set_av_state(1, AUDIO_STOP);
 		timestamp_apts_enable(0);
 		timestamp_apts_set(-1);
 		tsync_abreak = 0;
@@ -1201,6 +1207,11 @@ int tsync_set_apts(unsigned int pts)
 	/* ssize_t r; */
 	unsigned int oldpts = timestamp_apts_get();
 	int oldmod = tsync_mode;
+
+	if (tsync_mode == TSYNC_MODE_PCRMASTER) {
+		tsync_pcr_set_apts(pts);
+		return 0;
+	}
 
 	if (tsync_abreak)
 		tsync_abreak = 0;
@@ -1744,11 +1755,8 @@ static ssize_t show_discontinue(struct class *class,
 {
 	pts_discontinue = vpts_discontinue || apts_discontinue;
 	if (pts_discontinue) {
-		sprintf(buf, "1: pts_discontinue, ");
-		sprintf(buf, "%sapts_discontinue_diff=%d, ",
-				buf, apts_discontinue_diff);
-		return sprintf(buf, "%svpts_discontinue_diff=%d,\n",
-				buf, vpts_discontinue_diff);
+		return sprintf(buf, "apts diff %d, vpts diff=%d\n",
+			apts_discontinue_diff, vpts_discontinue_diff);
 	}
 
 	return sprintf(buf, "0: pts_continue\n");

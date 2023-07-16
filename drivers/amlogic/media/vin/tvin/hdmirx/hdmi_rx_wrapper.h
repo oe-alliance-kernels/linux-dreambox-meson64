@@ -140,5 +140,6 @@ extern void rx_emp_data_capture(void);
 extern void rx_tmds_data_capture(void);
 extern void dump_state(int enable);
 extern void hdmirx_init_params(void);
+void fs_mode_init(void);
 #endif
 

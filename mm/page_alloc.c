@@ -2050,32 +2050,55 @@ static bool can_steal_fallback(unsigned int order, int start_mt)
  * pages are moved, we can change migratetype of pageblock and permanently
  * use it's pages as requested migratetype in the future.
  */
-#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
 static void steal_suitable_fallback(struct zone *zone, struct page *page,
-				    int start_type, int *list_type)
-#else
-static void steal_suitable_fallback(struct zone *zone, struct page *page,
-							  int start_type)
-#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
+					int start_type, bool whole_block)
 {
 	unsigned int current_order = page_order(page);
+	struct free_area *area;
 	int pages;
+#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
+	int list_type;
+#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
+
+	/*
+	 * This can happen due to races and we want to prevent broken
+	 * highatomic accounting.
+	 */
+	if (is_migrate_highatomic_page(page))
+		goto single_page;
 
 	/* Take ownership for orders >= pageblock_order */
 	if (current_order >= pageblock_order) {
 		change_pageblock_range(page, current_order, start_type);
-		return;
+		goto single_page;
 	}
 
+	/* We are not allowed to try stealing from the whole block */
+	if (!whole_block)
+		goto single_page;
+
 	pages = move_freepages_block(zone, page, start_type);
-#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
-	*list_type = start_type;
-#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
+	/* moving whole block can fail due to zone boundary conditions */
+	if (!pages)
+		goto single_page;
 
 	/* Claim the whole block if over half of it is free */
 	if (pages >= (1 << (pageblock_order-1)) ||
 			page_group_by_mobility_disabled)
 		set_pageblock_migratetype(page, start_type);
+
+	return;
+
+single_page:
+	area = &zone->free_area[current_order];
+	list_move(&page->lru, &area->free_list[start_type]);
+#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
+	/* This stolen page will be allocated by __rmqueue_smallest again */
+	list_type = get_pcppage_migratetype(page);
+	__mod_zone_migrate_state(zone, -(1 << current_order), list_type);
+	__mod_zone_migrate_state(zone,  (1 << current_order), start_type);
+	set_pcppage_migratetype(page, start_type);
+#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
 }
 
 /*
@@ -2141,8 +2164,8 @@ static void reserve_highatomic_pageblock(struct page *page, struct zone *zone,
 
 	/* Yoink! */
 	mt = get_pageblock_migratetype(page);
-	if (mt != MIGRATE_HIGHATOMIC &&
-			!is_migrate_isolate(mt) && !is_migrate_cma(mt)) {
+	if (!is_migrate_highatomic(mt) && !is_migrate_isolate(mt)
+	    && !is_migrate_cma(mt)) {
 		zone->nr_reserved_highatomic += pageblock_nr_pages;
 		set_pageblock_migratetype(page, MIGRATE_HIGHATOMIC);
 		move_freepages_block(zone, page, MIGRATE_HIGHATOMIC);
@@ -2190,8 +2213,7 @@ static void unreserve_highatomic_pageblock(const struct alloc_context *ac)
 			 * from highatomic to ac->migratetype. So we should
 			 * adjust the count once.
 			 */
-			if (get_pageblock_migratetype(page) ==
-							MIGRATE_HIGHATOMIC) {
+			if (is_migrate_highatomic_page(page)) {
 				/*
 				 * It should never happen but changes to
 				 * locking could inadvertently allow a per-cpu
@@ -2222,8 +2244,13 @@ static void unreserve_highatomic_pageblock(const struct alloc_context *ac)
 	}
 }
 
-/* Remove an element from the buddy allocator from the fallback list */
-static inline struct page *
+/*
+ * Try finding a free buddy page on the fallback list and put it on the free
+ * list of requested migratetype, possibly along with other pages from the same
+ * block, depending on fragmentation avoidance heuristics. Returns true if
+ * fallback was found so that __rmqueue_smallest() can grab it.
+ */
+static inline bool
 __rmqueue_fallback(struct zone *zone, unsigned int order, int start_migratetype)
 {
 	struct free_area *area;
@@ -2231,11 +2258,12 @@ __rmqueue_fallback(struct zone *zone, unsigned int order, int start_migratetype)
 	struct page *page;
 	int fallback_mt;
 	bool can_steal;
-#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
-	int list_type;
-#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
 
-	/* Find the largest possible block of pages in the other list */
+	/*
+	 * Find the largest available free page in the other list. This roughly
+	 * approximates finding the pageblock with the most free pages, which
+	 * would be too costly to do exactly.
+	 */
 	for (current_order = MAX_ORDER-1;
 				current_order >= order && current_order <= MAX_ORDER-1;
 				--current_order) {
@@ -2245,46 +2273,50 @@ __rmqueue_fallback(struct zone *zone, unsigned int order, int start_migratetype)
 		if (fallback_mt == -1)
 			continue;
 
-		page = list_first_entry(&area->free_list[fallback_mt],
-						struct page, lru);
-	#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
-		/* list_type may change after try_to_steal_freepages */
-		list_type = fallback_mt;
-		if (can_steal)
-			steal_suitable_fallback(zone, page, start_migratetype,
-						&list_type);
-	#else
-		if (can_steal)
-			steal_suitable_fallback(zone, page, start_migratetype);
-	#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
-
-		/* Remove the page from the freelists */
-		area->nr_free--;
-	#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
-		__mod_zone_migrate_state(zone, -(1 << current_order),
-					 list_type);
-	#endif /* CONFIG_AMLOGIC_MEMORY_EXTEND */
-		list_del(&page->lru);
-		rmv_page_order(page);
-
-		expand(zone, page, order, current_order, area,
-					start_migratetype);
 		/*
-		 * The pcppage_migratetype may differ from pageblock's
-		 * migratetype depending on the decisions in
-		 * find_suitable_fallback(). This is OK as long as it does not
-		 * differ for MIGRATE_CMA pageblocks. Those can be used as
-		 * fallback only via special __rmqueue_cma_fallback() function
+		 * We cannot steal all free pages from the pageblock and the
+		 * requested migratetype is movable. In that case it's better to
+		 * steal and split the smallest available page instead of the
+		 * largest available page, because even if the next movable
+		 * allocation falls back into a different pageblock than this
+		 * one, it won't cause permanent fragmentation.
 		 */
-		set_pcppage_migratetype(page, start_migratetype);
+		if (!can_steal && start_migratetype == MIGRATE_MOVABLE
+					&& current_order > order)
+			goto find_smallest;
 
-		trace_mm_page_alloc_extfrag(page, order, current_order,
-			start_migratetype, fallback_mt);
-
-		return page;
+		goto do_steal;
 	}
 
-	return NULL;
+	return false;
+
+find_smallest:
+	for (current_order = order; current_order < MAX_ORDER;
+							current_order++) {
+		area = &(zone->free_area[current_order]);
+		fallback_mt = find_suitable_fallback(area, current_order,
+				start_migratetype, false, &can_steal);
+		if (fallback_mt != -1)
+			break;
+	}
+
+	/*
+	 * This should not happen - we already found a suitable fallback
+	 * when looking for the largest page.
+	 */
+	VM_BUG_ON(current_order == MAX_ORDER);
+
+do_steal:
+	page = list_first_entry(&area->free_list[fallback_mt],
+							struct page, lru);
+
+	steal_suitable_fallback(zone, page, start_migratetype, can_steal);
+
+	trace_mm_page_alloc_extfrag(page, order, current_order,
+		start_migratetype, fallback_mt);
+
+	return true;
+
 }
 
 /*
@@ -2313,6 +2345,7 @@ static struct page *__rmqueue(struct zone *zone, unsigned int order,
 	}
 #endif /* CONFIG_AMLOGIC_CMA */
 
+retry:
 	page = __rmqueue_smallest(zone, order, migratetype);
 	if (unlikely(!page)) {
 	#ifndef CONFIG_AMLOGIC_CMA /* no need to try again */
@@ -2320,8 +2353,8 @@ static struct page *__rmqueue(struct zone *zone, unsigned int order,
 			page = __rmqueue_cma_fallback(zone, order);
 	#endif /* !CONFIG_AMLOGIC_CMA */
 
-		if (!page)
-			page = __rmqueue_fallback(zone, order, migratetype);
+		if (!page && __rmqueue_fallback(zone, order, migratetype))
+			goto retry;
 	}
 
 	trace_mm_page_alloc_zone_locked(page, order, migratetype);
@@ -2338,12 +2371,16 @@ static struct page *rmqueue_no_cma(struct zone *zone, unsigned int order,
 	struct page *page;
 
 	spin_lock(&zone->lock);
+retry:
 	page = __rmqueue_smallest(zone, order, migratetype);
-	if (unlikely(!page))
-		if (!page)
-			page = __rmqueue_fallback(zone, order, migratetype);
+	if (unlikely(!page)) {
+		if (!page &&  __rmqueue_fallback(zone, order, migratetype))
+			goto retry;
+	}
 	WARN_ON(page && is_migrate_cma(get_pcppage_migratetype(page)));
-	__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
+	if (page)
+		__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
+
 	spin_unlock(&zone->lock);
 	return page;
 }
@@ -2611,7 +2648,7 @@ void free_hot_cold_page(struct page *page, bool cold)
 	/*
 	 * We only track unmovable, reclaimable and movable on pcp lists.
 	 * Free ISOLATE pages back to the allocator because they are being
-	 * offlined but treat RESERVE as movable pages so we can get those
+	 * offlined but treat HIGHATOMIC as movable pages so we can get those
 	 * areas back if necessary. Otherwise, we may have to free
 	 * excessively into the page allocator
 	 */
@@ -2741,7 +2778,8 @@ int __isolate_free_page(struct page *page, unsigned int order)
 		struct page *endpage = page + (1 << order) - 1;
 		for (; page < endpage; page += pageblock_nr_pages) {
 			int mt = get_pageblock_migratetype(page);
-			if (!is_migrate_isolate(mt) && !is_migrate_cma(mt))
+			if (!is_migrate_isolate(mt) && !is_migrate_cma(mt)
+			    && !is_migrate_highatomic(mt))
 				set_pageblock_migratetype(page,
 							  MIGRATE_MOVABLE);
 		}
@@ -3017,9 +3055,7 @@ bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 
 #ifdef CONFIG_CMA
 	/* If allocation can't use CMA areas don't use free CMA pages */
-#ifndef CONFIG_AMLOGIC_CMA /* always sub cma pages to avoid wm all CMA */
 	if (!(alloc_flags & ALLOC_CMA))
-#endif
 		free_pages -= zone_page_state(z, NR_FREE_CMA_PAGES);
 #endif
 
@@ -3195,6 +3231,12 @@ get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 			BUILD_BUG_ON(ALLOC_NO_WATERMARKS < NR_WMARK);
 			if (alloc_flags & ALLOC_NO_WATERMARKS)
 				goto try_this_zone;
+
+		#ifdef CONFIG_AMLOGIC_MEMORY_EXTEND
+			/* alloc harder if under softirq */
+			if (in_serving_softirq() && (gfp_mask & __GFP_ATOMIC))
+				goto try_this_zone;
+		#endif
 
 			if (node_reclaim_mode == 0 ||
 			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone))
@@ -4005,15 +4047,22 @@ static inline void should_wakeup_kswap(gfp_t gfp_mask, int order,
 	unsigned long free_pages, free_cma = 0;
 	struct zoneref *z = ac->preferred_zoneref;
 	struct zone *zone;
+	unsigned long high_wm;
 
-	if (!(gfp_mask & __GFP_RECLAIM))	/* not allowed */
+	/*
+	 * 1, if flag not allow reclaim
+	 * 2, if with aotimic, we still need enable pre-wake up of
+	 *    kswap to avoid large amount memory request fail in very
+	 *    short time
+	 */
+	if (!(gfp_mask & __GFP_RECLAIM) && !(gfp_mask & __GFP_ATOMIC))
 		return;
 
 	for_next_zone_zonelist_nodemask(zone, z, ac->zonelist, ac->high_zoneidx,
 								ac->nodemask) {
 		free_pages = zone_page_state(zone, NR_FREE_PAGES);
 	#ifdef CONFIG_AMLOGIC_CMA
-		if (can_use_cma(gfp_mask))
+		if (!can_use_cma(gfp_mask))
 			free_cma = zone_page_state(zone, NR_FREE_CMA_PAGES);
 	#endif /* CONFIG_AMLOGIC_CMA */
 		free_pages -= free_cma;
@@ -4022,7 +4071,10 @@ static inline void should_wakeup_kswap(gfp_t gfp_mask, int order,
 		 * fast reclaim process and can avoid memory become too low
 		 * some times
 		 */
-		if (free_pages <= high_wmark_pages(zone))
+		high_wm = high_wmark_pages(zone);
+		if (gfp_mask & __GFP_HIGH) /* 1.5x if __GFP_HIGH */
+			high_wm = ((high_wm * 3) / 2);
+		if (free_pages <= high_wm)
 			wakeup_kswapd(zone, order, ac->high_zoneidx);
 	}
 }

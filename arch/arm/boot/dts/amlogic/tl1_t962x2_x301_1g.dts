@@ -90,7 +90,7 @@
 			compatible = "shared-dma-pool";
 			reusable;
 			/* ion_codec_mm max can alloc size 80M*/
-			size = <0xd000000>;
+			size = <0xdc00000>;
 			alignment = <0x400000>;
 			linux,contiguous-region;
 			alloc-ranges = <0x30000000 0x10000000>;
@@ -558,8 +558,9 @@
 		 *if support 4K2K-YUV422-10bit-wr:3840*2160*3*6 ~= 160M
 		 *if support 4K2K-YUV422-8BIT-WR:3840*2160*2*4 ~= 64M
 		 *if support 1080p-YUV422-8BIT-WR:1920*1080*2*4 ~= 16M
+		 *worst case:(4096*2160*4 + 2M(afbce issue)) *6buf = 214.5M
 		 */
-		cma_size = <200>;
+		cma_size = <215>;
 		interrupts = <0 83 1>;
 		rdma-irq = <2>;
 		clocks = <&clkc CLKID_FCLK_DIV5>,
@@ -584,7 +585,7 @@
 		 * bit6 -- afbce for 720p
 		 * bit7 -- afbce for smaller resolution
 		 */
-		afbce_bit_mode = <0x11>;
+		afbce_bit_mode = <0x31>;
 	};
 
 	vdin@1 {
@@ -718,7 +719,7 @@
 		compatible = "amlogic, unifykey";
 		status = "okay";
 
-		unifykey-num = <21>;
+		unifykey-num = <22>;
 		unifykey-index-0 = <&keysn_0>;
 		unifykey-index-1 = <&keysn_1>;
 		unifykey-index-2 = <&keysn_2>;
@@ -740,6 +741,7 @@
 		unifykey-index-18 = <&keysn_18>;
 		unifykey-index-19 = <&keysn_19>;
 		unifykey-index-20 = <&keysn_20>;
+		unifykey-index-21 = <&keysn_21>;
 
 		keysn_0: key_0{
 			key-name = "usid";
@@ -851,6 +853,11 @@
 			key-device = "secure";
 			key-permit = "read","write","del";
 		};
+		keysn_21:key_21{
+			key-name = "attestationdevidbox";// attest dev id box
+			key-device = "secure";
+			key-permit = "read","write","del";
+		};
 	}; /* End unifykey */
 
 	amlvideo2_0 {
@@ -875,10 +882,14 @@
 		#size-cells=<1>;
 		memory-region = <&hdmirx_emp_cma_reserved>;
 		status = "okay";
-		pinctrl-names = "default";
+		pinctrl-names = "hdmirx_pins";
 		pinctrl-0 = <&hdmirx_a_mux &hdmirx_b_mux
 			&hdmirx_c_mux>;
 		repeat = <0>;
+		/* bit 4: tdr enable bit
+		 * bit [3:0]: tdr level control
+		 */
+		term_lvl = <0x11>;
 		interrupts = <0 41 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clkc CLKID_HDMIRX_MODET_COMP>,
 			   <&clkc CLKID_HDMIRX_CFG_COMP>,
@@ -1371,7 +1382,7 @@
  *			max_req_size = <0x20000>;
  *			no_sduart = <1>;
  *			gpio_dat3 = <&gpio GPIOC_3 GPIO_ACTIVE_HIGH>;
- *			jtag_pin = <&gpio GPIOC_0 GPIO_ACTIVE_HIGH>;
+ *			jtag_pin = <&gpio GPIOC_1 GPIO_ACTIVE_HIGH>;
  *			gpio_cd = <&gpio GPIOC_10 GPIO_ACTIVE_HIGH>;
  *			card_type = <5>;
  *		};
@@ -1446,7 +1457,7 @@
 				&clkc CLKID_MPLL1>;
 		clock-names = "mclk", "clk_srcpll";
 
-		mclk_pad = <0>;  /* 0: mclk_0; 1: mclk_1 */
+		mclk_pad = <1>;  /* 0: mclk_0; 1: mclk_1 */
 
 		status = "okay";
 	};
@@ -1465,8 +1476,6 @@
 
 		pinctrl-names = "tdm_pins";
 		pinctrl-0 = <&tdmout_c &tdmin_c>;
-
-		mclk_pad = <0>;  /* 0: mclk_0; 1: mclk_1 */
 
 		status = "okay";
 	};
@@ -1555,7 +1564,7 @@
 		 * 7: "Enable:192K",
 		 */
 		asrc_id = <0>;
-		auto_asrc = <3>;
+		auto_asrc = <0>;
 
 		/*spdif clk tuning enable*/
 		clk_tuning_enable = <1>;

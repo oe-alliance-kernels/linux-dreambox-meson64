@@ -20,6 +20,7 @@
 #include <uapi/linux/dvb/frontend.h>
 
 #include <linux/amlogic/aml_atvdemod.h>
+#include <linux/amlogic/media/vout/vdac_dev.h>
 
 #include "drivers/media/tuners/tuner-i2c.h"
 #include "drivers/media/dvb-core/dvb_frontend.h"
@@ -128,6 +129,11 @@ int aml_atvdemod_get_btsc_sap_mode(void)
 	return btsc_sap_mode;
 }
 
+static bool atvdemod_check_exited(struct atv_demod_priv *priv)
+{
+	return (priv->state != ATVDEMOD_STATE_WORK);
+}
+
 int atv_demod_enter_mode(struct dvb_frontend *fe)
 {
 	int err_code = 0;
@@ -144,7 +150,7 @@ int atv_demod_enter_mode(struct dvb_frontend *fe)
 	}
 
 	err_code = adc_set_pll_cntl(1, ADC_EN_ATV_DEMOD, NULL);
-	vdac_enable(1, 1);
+	vdac_enable(1, VDAC_MODULE_AVOUT_ATV);
 	usleep_range(2000, 2100);
 	atvdemod_clk_init();
 	/* err_code = atvdemod_init(); */
@@ -196,7 +202,7 @@ int atv_demod_leave_mode(struct dvb_frontend *fe)
 		amlatvdemod_devp->agc_pin = NULL;
 	}
 
-	vdac_enable(0, 1);
+	vdac_enable(0, VDAC_MODULE_AVOUT_ATV);
 	adc_set_pll_cntl(0, ADC_EN_ATV_DEMOD, NULL);
 	if (is_meson_txlx_cpu() || is_meson_txhd_cpu() || is_meson_tl1_cpu()
 			|| is_meson_tm2_cpu())
@@ -531,8 +537,15 @@ static void atvdemod_fe_try_analog_format(struct v4l2_frontend *v4l2_fe,
 	unsigned int broad_std = 0;
 	unsigned int audio = 0;
 
+	*video_fmt = 0;
+	*audio_fmt = 0;
+	*soundsys = 0;
+
 	if (auto_search_std & AUTO_DETECT_COLOR) {
 		for (i = 0; i < try_vfmt_cnt; i++) {
+
+			if (atvdemod_check_exited(priv))
+				return;
 
 			/* SECAM-L/L' */
 			if ((p->std & (V4L2_STD_SECAM_L | V4L2_STD_SECAM_LC))
@@ -718,6 +731,9 @@ static void atvdemod_fe_try_signal(struct v4l2_frontend *v4l2_fe,
 
 	*lock = false;
 	do {
+		if (atvdemod_check_exited(priv))
+			break;
+
 		if (tuner_id == AM_TUNER_MXL661) {
 			usleep_range(30 * 1000, 30 * 1000 + 100);
 		} else if (tuner_id == AM_TUNER_R840 ||
@@ -843,6 +859,9 @@ static int atvdemod_fe_afc_closer(struct v4l2_frontend *v4l2_fe, int minafcfreq,
 
 		set_freq = p->frequency;
 		while (abs(afc) > AFC_BEST_LOCK) {
+			if (atvdemod_check_exited(priv))
+				return -1;
+
 			if (tuner_id == AM_TUNER_MXL661)
 				usleep_range(30 * 1000, 30 * 1000 + 100);
 			else
@@ -1124,6 +1143,8 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 	int ret = -1;
 	unsigned int tuner_id = 0;
 	int priv_cfg = 0;
+	int exit_status = 0;
+	char *exit_str = "";
 
 	if (unlikely(!fe || !p ||
 			!fe->ops.tuner_ops.get_status ||
@@ -1136,7 +1157,7 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 	}
 
 	priv = fe->analog_demod_priv;
-	if (priv->state != ATVDEMOD_STATE_WORK) {
+	if (atvdemod_check_exited(priv)) {
 		pr_err("[%s] ATV state is not work.\n", __func__);
 		return V4L2_SEARCH_INVALID;
 	}
@@ -1216,6 +1237,11 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 	while (minafcfreq <= p->frequency &&
 			p->frequency <= maxafcfreq) {
 
+		if (atvdemod_check_exited(priv)) {
+			exit_status = 1;
+			break;
+		}
+
 		pr_dbg("[%s] [%d] is processing, [min=%d, max=%d].\n",
 				__func__, p->frequency, minafcfreq, maxafcfreq);
 
@@ -1249,6 +1275,9 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 					p->soundsys = soundsys;
 					std_bk = 0;
 					audio = 0;
+				} else {
+					exit_status = 1;
+					break;
 				}
 
 				/* sync param */
@@ -1264,8 +1293,11 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 				(uint32_t) p->std, p->frequency);
 
 		/* when manual search, just search current freq */
-		if (p->flag == ANALOG_FLAG_MANUL_SCAN)
+		if (p->flag == ANALOG_FLAG_MANUL_SCAN) {
+			exit_status = 2;
 			break;
+		}
+
 #ifdef DOUBLE_CHECK_44_25MHZ
 		if (p->frequency >= 44200000 &&
 			p->frequency <= 44300000 &&
@@ -1284,8 +1316,15 @@ static enum v4l2_search atvdemod_fe_search(struct v4l2_frontend *v4l2_fe)
 #endif
 	}
 
-	pr_dbg("[%s] [%d] over of range [min=%d, max=%d], search failed.\n",
-			__func__, p->frequency, minafcfreq, maxafcfreq);
+	if (!exit_status)
+		exit_str = "over of range, search failed";
+	else if (exit_status == 1)
+		exit_str = "search exited";
+	else
+		exit_str = "search failed";
+
+	pr_dbg("[%s] [%d] %s.\n", __func__, p->frequency, exit_str);
+
 	p->frequency = set_freq;
 
 	priv_cfg = AML_ATVDEMOD_UNSCAN_MODE;

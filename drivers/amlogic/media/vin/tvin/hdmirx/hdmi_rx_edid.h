@@ -706,12 +706,13 @@ extern bool new_hdr_lum;
 extern bool atmos_edid_update_hpd_en;
 extern bool en_take_dtd_space;
 extern bool earc_cap_ds_update_hpd_en;
-extern unsigned char edid_temp[EDID_SIZE];
+extern unsigned char edid_temp[EDID_SIZE * 2];
+extern unsigned int edid_select;
 
 int rx_set_hdr_lumi(unsigned char *data, int len);
 void rx_edid_physical_addr(int a, int b, int c, int d);
 unsigned char rx_parse_arc_aud_type(const unsigned char *buff);
-extern unsigned int hdmi_rx_top_edid_update(void);
+bool hdmi_rx_top_edid_update(void);
 unsigned char rx_get_edid_index(void);
 unsigned char *rx_get_edid(int edid_index);
 void edid_parse_block0(uint8_t *p_edid, struct edid_info_s *edid_info);
@@ -738,4 +739,5 @@ void rx_modify_edid(unsigned char *buffer,
 void rx_edid_update_audio_info(unsigned char *p_edid,
 						unsigned int len);
 extern bool is_ddc_idle(unsigned char port_id);
+bool need_update_edid(void);
 #endif

@@ -413,6 +413,8 @@ struct di_pre_stru_s {
 	unsigned long irq_time[2];
 	/* combing adaptive */
 	struct combing_status_s *mtn_status;
+	bool combing_fix_en;
+	unsigned int comb_mode;
 };
 
 struct di_post_stru_s {

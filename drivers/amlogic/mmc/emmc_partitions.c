@@ -1025,7 +1025,7 @@ static ssize_t emmc_part_table_get(struct class *class,
 
 	for (i = 0; i < MAX_MMC_PART_NUM; i++) {
 		if (tmp_table[i].mask_flags == STORE_CODE) {
-			strncpy(part_table[part_num].name,
+			strlcpy(part_table[part_num].name,
 					tmp_table[i].name,
 					MAX_MMC_PART_NAME_LEN);
 
@@ -1039,7 +1039,7 @@ static ssize_t emmc_part_table_get(struct class *class,
 	}
 	for (i = 0; i < MAX_MMC_PART_NUM; i++) {
 		if (tmp_table[i].mask_flags == STORE_CACHE) {
-			strncpy(part_table[part_num].name,
+			strlcpy(part_table[part_num].name,
 					tmp_table[i].name,
 					MAX_MMC_PART_NAME_LEN);
 
@@ -1054,7 +1054,7 @@ static ssize_t emmc_part_table_get(struct class *class,
 	}
 	for (i = 0; i < MAX_MMC_PART_NUM; i++) {
 		if (tmp_table[i].mask_flags == STORE_DATA) {
-			strncpy(part_table[part_num].name,
+			strlcpy(part_table[part_num].name,
 					tmp_table[i].name,
 					MAX_MMC_PART_NAME_LEN);
 

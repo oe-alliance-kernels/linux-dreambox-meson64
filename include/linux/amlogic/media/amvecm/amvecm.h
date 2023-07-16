@@ -71,6 +71,10 @@
 #define VPP_DEMO_CM_EN              (1 << 0)
 
 /*PQ USER LATCH*/
+#define PQ_USER_CMS_CURVE_HUE_HS   BIT(23)
+#define PQ_USER_CMS_CURVE_HUE      BIT(22)
+#define PQ_USER_CMS_CURVE_LUMA     BIT(21)
+#define PQ_USER_CMS_CURVE_SAT      BIT(20)
 #define PQ_USER_SR1_DERECTION_DIS  (1 << 19)
 #define PQ_USER_SR1_DERECTION_EN   (1 << 18)
 #define PQ_USER_SR0_DERECTION_DIS  (1 << 17)
@@ -103,6 +107,7 @@
 #define PRIMESL_SOURCE		4
 #define HLG_SOURCE			5
 #define SDR_SOURCE			6
+#define MVC_SOURCE           7
 
 enum cm_hist_e {
 	CM_HUE_HIST = 0,
@@ -286,7 +291,8 @@ enum hdr_type_e {
 	HDRTYPE_HDR10 = HDR10_SOURCE,
 	HDRTYPE_HLG = HLG_SOURCE,
 	HDRTYPE_HDR10PLUS = HDR10PLUS_SOURCE,
-	HDRTYPE_DOVI = DOVI_SOURCE
+	HDRTYPE_DOVI = DOVI_SOURCE,
+	HDRTYPE_MVC = MVC_SOURCE,
 };
 
 enum pd_comb_fix_lvl_e {
@@ -441,12 +447,12 @@ struct am_pq_parm_s {
 static inline void WRITE_VPP_REG(uint32_t reg,
 		const uint32_t value)
 {
-	aml_write_vcbus(reg, value);
+	aml_write_vcbus_s(reg, value);
 }
 
 static inline uint32_t READ_VPP_REG(uint32_t reg)
 {
-	return aml_read_vcbus(reg);
+	return aml_read_vcbus_s(reg);
 }
 
 static inline void WRITE_VPP_REG_BITS(uint32_t reg,
@@ -454,9 +460,7 @@ static inline void WRITE_VPP_REG_BITS(uint32_t reg,
 		const uint32_t start,
 		const uint32_t len)
 {
-	WRITE_VPP_REG(reg, ((READ_VPP_REG(reg) &
-		~(((1L << (len)) - 1) << (start))) |
-		(((value) & ((1L << (len)) - 1)) << (start))));
+	aml_vcbus_update_bits_s(reg, value, start, len);
 }
 
 static inline uint32_t READ_VPP_REG_BITS(uint32_t reg,
@@ -465,7 +469,7 @@ static inline uint32_t READ_VPP_REG_BITS(uint32_t reg,
 {
 	uint32_t val;
 
-	val = ((READ_VPP_REG(reg) >> (start)) & ((1L << (len)) - 1));
+	val = ((aml_read_vcbus_s(reg) >> (start)) & ((1L << (len)) - 1));
 
 	return val;
 }

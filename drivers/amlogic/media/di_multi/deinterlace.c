@@ -840,10 +840,10 @@ struct di_buf_s *dim_get_buf(unsigned int channel, int queue_idx,
 
 	if (dimp_get(eDI_MP_di_log_flag) & DI_LOG_QUEUE) {
 		if (di_buf)
-			dim_print("%s: %x(%d,%d)\n", __func__, di_buf,
+			dim_print("%s: 0x%p(%d,%d)\n", __func__, di_buf,
 				  pool_idx, di_buf_idx);
 		else
-			dim_print("%s: %x\n", __func__, di_buf);
+			dim_print("%s: 0x%p\n", __func__, di_buf);
 	}
 
 	return di_buf;
@@ -3294,7 +3294,8 @@ void dim_pre_de_done_buf_config(unsigned int channel, bool flg_timeout)
 						overturn,
 						ppre->di_inp_buf->vframe);
 			/*if (combing_fix_en)*/
-			if (dimp_get(eDI_MP_combing_fix_en)) {
+			/*if (dimp_get(eDI_MP_combing_fix_en)) {*/
+			if (ppre->combing_fix_en) {
 				tmp_cur_lev /*cur_lev*/
 				= get_ops_mtn()->adaptive_combing_fixing(
 					ppre->mtn_status,
@@ -3759,6 +3760,8 @@ unsigned char dim_pre_de_buf_config(unsigned int channel)
 	struct di_post_stru_s *ppost = get_post_stru(channel);
 	struct di_dev_s *de_devp = get_dim_de_devp();
 	int cfg_prog_proc = dimp_get(eDI_MP_prog_proc_config);
+	bool flg_1080i = false;
+	bool flg_480i = false;
 
 	if (di_blocking || !dip_cma_st_is_ready(channel))
 		return 0;
@@ -4215,21 +4218,15 @@ unsigned char dim_pre_de_buf_config(unsigned int channel)
 			}
 		} else {
 		/*********************************/
-		if ((di_buf->vframe->width >= 1920)	&&
-		    (di_buf->vframe->height >= 1080)	&&
-		    is_meson_tl1_cpu()) {
-			/*if (combing_fix_en) {*/
-			if (dimp_get(eDI_MP_combing_fix_en)) {
-				/*combing_fix_en = false;*/
-				dimp_set(eDI_MP_combing_fix_en, 0);
-				get_ops_mtn()->fix_tl1_1080i_sawtooth_patch();
-			}
-		} else {
-			/*combing_fix_en = true;*/
-			dimp_set(eDI_MP_combing_fix_en, 1);
-		}
+		if ((di_buf->vframe->width >= 1920) &&
+		    (di_buf->vframe->height >= 1080))
+			flg_1080i = true;
+		else if ((di_buf->vframe->width == 720) &&
+			 (di_buf->vframe->height == 480))
+			flg_480i = true;
 
 		/*********************************/
+
 			if (!ppre->di_chan2_buf_dup_p) {
 				ppre->field_count_for_cont = 0;
 				/* ignore contp2rd and contprd */
@@ -4406,6 +4403,23 @@ unsigned char dim_pre_de_buf_config(unsigned int channel)
 		recovery_flag++;
 		return 0;
 	}
+	if (is_meson_tl1_cpu()			&&
+	    ppre->comb_mode			&&
+	    flg_1080i) {
+		ppre->combing_fix_en = false;
+		get_ops_mtn()->fix_tl1_1080i_patch_sel(ppre->comb_mode);
+	} else {
+		ppre->combing_fix_en = di_mpr(combing_fix_en);
+	}
+
+	if (ppre->combing_fix_en) {
+		if (flg_1080i)
+			get_ops_mtn()->com_patch_pre_sw_set(1);
+		else if (flg_480i)
+			get_ops_mtn()->com_patch_pre_sw_set(2);
+		else
+			get_ops_mtn()->com_patch_pre_sw_set(0);
+	}
 	return 1;
 }
 
@@ -4431,14 +4445,14 @@ int dim_check_recycle_buf(unsigned int channel)
 					pw_vf_notify_provider(channel,
 						VFRAME_EVENT_RECEIVER_PUT,
 						NULL);
-			dim_print(
-				"%s: ch[%d],vf_put(%d) %x, %u ms\n",
-				__func__,
-				channel,
-				ppre->recycle_seq,
-				pvframe_in[di_buf->index],
-				jiffies_to_msecs(jiffies_64 -
-				pvframe_in[di_buf->index]->ready_jiffies64));
+					dim_print(
+						  "%sch[%d]vfpt(%d)0x%p,%ums\n",
+						  __func__, channel,
+						  ppre->recycle_seq,
+						  pvframe_in[di_buf->index],
+						  jiffies_to_msecs(jiffies_64 -
+						  pvframe_in[di_buf->index]->
+						  ready_jiffies64));
 					pvframe_in[di_buf->index] = NULL;
 				}
 				di_buf->invert_top_bot_flag = 0;
@@ -6047,7 +6061,7 @@ static void drop_frame(int check_drop, int throw_flag, struct di_buf_s *di_buf,
 			di_que_in(channel, QUE_POST_READY, di_buf);
 
 		dim_tr_ops.post_do(di_buf->vframe->omx_index);
-		dim_print("di:ch[%]:%dth %s[%d] => post ready %u ms.\n",
+		dim_print("di:ch[%d]:%dth %s[%d] => post ready %u ms.\n",
 			  channel,
 			  frame_count,
 			  vframe_type_name[di_buf->type], di_buf->index,
@@ -7695,7 +7709,7 @@ get_vframe:
 		dim_log_buffer_state("get", channel);
 	}
 	if (vframe_ret) {
-		dim_print("%s: %s[%d]:%x %u ms\n", __func__,
+		dim_print("%s: %s[%d]:0x%p %u ms\n", __func__,
 			  vframe_type_name[di_buf->type],
 			  di_buf->index,
 			  vframe_ret,

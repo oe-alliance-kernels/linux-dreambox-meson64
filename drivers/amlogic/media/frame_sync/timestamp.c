@@ -41,6 +41,7 @@ static u32 first_checkin_vpts;
 static u32 first_checkin_apts;
 static u32 first_apts;
 static u32 pcrscr_lantcy = 200*90;
+EXPORT_SYMBOL(pcrscr_lantcy);
 static u32 video_pts;
 static u32 audio_pts;
 static u32 last_apts_gap;
@@ -125,21 +126,16 @@ EXPORT_SYMBOL(timestamp_apts_started);
 
 u32 timestamp_pcrscr_get(void)
 {
-	if (tsync_get_mode() != TSYNC_MODE_PCRMASTER)
-		return system_time;
+//	if (tsync_get_mode() != TSYNC_MODE_PCRMASTER)
+//		return system_time;
 
 	if (tsdemux_pcrscr_valid_cb && tsdemux_pcrscr_valid_cb()) {
 		if (tsync_pcr_demux_pcr_used() == 0) {
 			return system_time;
 			}
 		else {
-			if (tsdemux_pcrscr_get_cb) {
-				if (tsdemux_pcrscr_get_cb() > pcrscr_lantcy)
-					return
-					tsdemux_pcrscr_get_cb() - pcrscr_lantcy;
-				else
-					return 0;
-			}
+			if (tsdemux_pcrscr_get_cb)
+				return tsdemux_pcrscr_get_cb() - pcrscr_lantcy;
 			else
 				return system_time;
 		}

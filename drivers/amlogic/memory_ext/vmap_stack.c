@@ -165,9 +165,9 @@ unsigned long notrace irq_stack_entry(unsigned long sp)
 		sp_irq = (unsigned long)dst - 8;
 		/*
 		 * save start addr of the interrupted task's context
-		 * minus an extra 12 to force base sp 16Bytes aligned
+		 * used to back trace stack call from irq
+		 * Note: sp_irq must be aligned to 16 bytes
 		 */
-		sp_irq = sp_irq - sizeof(sp) - 12;
 		*((unsigned long *)sp_irq) = sp;
 		return sp_irq;
 	}
@@ -181,12 +181,12 @@ unsigned long notrace pmd_check(unsigned long addr, unsigned long far)
 	pud_t *pud, *pud_k;
 	pmd_t *pmd, *pmd_k;
 
-	if (addr < TASK_SIZE)
+	if (far < TASK_SIZE)
 		return addr;
 
-	index = pgd_index(addr);
+	index = pgd_index(far);
 
-	pgd = cpu_get_pgd() + index;
+	pgd   = cpu_get_pgd() + index;
 	pgd_k = init_mm.pgd + index;
 
 	if (pgd_none(*pgd_k))
@@ -194,16 +194,16 @@ unsigned long notrace pmd_check(unsigned long addr, unsigned long far)
 	if (!pgd_present(*pgd))
 		set_pgd(pgd, *pgd_k);
 
-	pud = pud_offset(pgd, addr);
-	pud_k = pud_offset(pgd_k, addr);
+	pud   = pud_offset(pgd, far);
+	pud_k = pud_offset(pgd_k, far);
 
 	if (pud_none(*pud_k))
 		goto bad_area;
 	if (!pud_present(*pud))
 		set_pud(pud, *pud_k);
 
-	pmd = pmd_offset(pud, addr);
-	pmd_k = pmd_offset(pud_k, addr);
+	pmd   = pmd_offset(pud, far);
+	pmd_k = pmd_offset(pud_k, far);
 
 #ifdef CONFIG_ARM_LPAE
 	/*
@@ -219,7 +219,7 @@ unsigned long notrace pmd_check(unsigned long addr, unsigned long far)
 	 * pmd_none() check for the entry really corresponded to address, not
 	 * for the first of pair.
 	 */
-	index = (addr >> SECTION_SHIFT) & 1;
+	index = (far >> SECTION_SHIFT) & 1;
 #endif
 	if (pmd_none(pmd_k[index]))
 		goto bad_area;
@@ -261,7 +261,7 @@ static struct page *get_vmap_cached_page(int *remain)
 	return page;
 }
 
-static struct page *check_pte_exist(unsigned long addr)
+struct page *check_pte_exist(unsigned long addr)
 {
 	struct mm_struct *mm;
 	pgd_t *pgd;
@@ -602,7 +602,7 @@ static int shrink_vm_stack(unsigned long low, unsigned long high)
 	return pages;
 }
 
-void arch_report_meminfo(struct seq_file *m)
+void vmap_report_meminfo(struct seq_file *m)
 {
 	unsigned long kb = 1 << (PAGE_SHIFT - 10);
 	unsigned long tmp1, tmp2, tmp3;

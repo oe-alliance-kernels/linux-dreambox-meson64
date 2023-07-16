@@ -551,7 +551,7 @@ static int meson6_dwmac_resume(struct device *dev)
 	struct pinctrl *pin_ctrl;
 	struct pinctrl_state *turnon_tes = NULL;
 	pr_info("resuem inter = %d\n", is_internal_phy);
-	if (ee_reset_base)
+	if ((ee_reset_base) && (support_mac_wol == 0))
 		writel((1 << 11), (void __iomem	*)
 			(unsigned long)ee_reset_base);
 
@@ -611,14 +611,40 @@ void meson6_dwmac_shutdown(struct platform_device *pdev)
 		if (priv->phydev->drv->remove)
 			priv->phydev->drv->remove(ndev->phydev);
 		else{
-			pr_info("gen_suspend\n");
-			genphy_suspend(ndev->phydev);
+			if (is_internal_phy) {
+				pr_info("gen_suspend\n");
+				genphy_suspend(ndev->phydev);
+			}
+#ifdef CONFIG_AMLOGIC_ETH_PRIVE
+			else if (device_may_wakeup(&pdev->dev)) {
+				/* amlogic puts the wol code for external realtek phy to the suspend function */
+				pr_info("enable wol\n");
+				phy_suspend(ndev->phydev);
+			}
+#endif
 		}
 	}
 	stmmac_pltfr_suspend(&pdev->dev);
 }
 
+static int dreamone_phy_fixup(struct phy_device *pdev)
+{
+	pr_info("dreamone_phy_fixup called!\n");
+
+	phy_write(pdev, 0xd, 0x2);
+	phy_write(pdev, 0xe, 0x8);
+	phy_write(pdev, 0xd, 0x4002);
+	phy_write(pdev, 0xe, 0x3de1);
+	phy_write(pdev, 0xd, 0x2);
+	phy_write(pdev, 0xe, 0x5);
+	phy_write(pdev, 0xd, 0x4002);
+	phy_write(pdev, 0xe, 0xbbbb);
+
+	return 0;
+}
+
 #endif
+
 static int meson6_dwmac_probe(struct platform_device *pdev)
 {
 	struct plat_stmmacenet_data *plat_dat;
@@ -654,6 +680,9 @@ static int meson6_dwmac_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
+
+	ret = phy_register_fixup(PHY_ANY_ID, 0x221622, 0xffffffff, dreamone_phy_fixup);
+
 #else
 	struct resource *res;
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);

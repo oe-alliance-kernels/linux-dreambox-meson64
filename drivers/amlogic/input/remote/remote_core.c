@@ -65,6 +65,8 @@ static void ir_do_keyup(struct remote_dev *dev)
 {
 	input_report_key(dev->input_device, dev->last_keycode, 0);
 	input_sync(dev->input_device);
+	if (dev->last_keycode == KEY_POWER)
+		pm_relax(dev->dev);
 	dev->keypressed = false;
 	dev->last_scancode = -1;
 	remote_dbg(dev->dev, "keyup!!\n");
@@ -123,9 +125,11 @@ void remote_keydown(struct remote_dev *dev, int scancode, int status)
 
 	if (status != REMOTE_REPEAT) {
 		if (dev->is_valid_custom &&
-			(false == dev->is_valid_custom(dev)))
+			(false == dev->is_valid_custom(dev))) {
 			dev_err(dev->dev, "invalid custom:0x%x\n",
 				dev->cur_hardcode);
+			return;
+		}
 	}
 	spin_lock_irqsave(&dev->keylock, flags);
 	/**
@@ -145,7 +149,7 @@ void remote_keydown(struct remote_dev *dev, int scancode, int status)
 	if (status == REMOTE_NORMAL) {
 		keycode = dev->getkeycode(dev, scancode);
 		if (keycode == KEY_POWER)
-			pm_wakeup_event(dev->dev, 2000);
+			pm_stay_awake(dev->dev);
 		ir_do_keydown(dev, scancode, keycode);
 	}
 
@@ -193,7 +197,6 @@ EXPORT_SYMBOL(remote_free_device);
 
 int remote_register_device(struct remote_dev *dev)
 {
-	int i;
 	int ret;
 
 	if (MULTI_IR_SOFTWARE_DECODE(dev->rc_type)) {
@@ -202,10 +205,7 @@ int remote_register_device(struct remote_dev *dev)
 	}
 
 	__set_bit(EV_KEY, dev->input_device->evbit);
-	for (i = KEY_RESERVED; i < BTN_MISC; i++)
-		__set_bit(i, dev->input_device->keybit);
-	for (i = KEY_OK; i < BTN_TRIGGER_HAPPY; i++)
-		__set_bit(i, dev->input_device->keybit);
+	__set_bit(EV_REP, dev->input_device->evbit);
 
 	__set_bit(BTN_MOUSE, dev->input_device->keybit);
 	__set_bit(BTN_LEFT, dev->input_device->keybit);
@@ -222,6 +222,8 @@ int remote_register_device(struct remote_dev *dev)
 
 	ret = input_register_device(dev->input_device);
 
+	dev->input_device->rep[REP_DELAY] = 700;
+	dev->input_device->rep[REP_PERIOD] = 100;
 	dev->debug_current     = 0;
 	dev->debug_buffer_size = 4096;
 	dev->debug_buffer = kzalloc(dev->debug_buffer_size, GFP_KERNEL);

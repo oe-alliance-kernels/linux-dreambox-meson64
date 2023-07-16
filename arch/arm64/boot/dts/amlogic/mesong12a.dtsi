@@ -1094,6 +1094,7 @@
 		dongle_mode = <0>;
 		vend_data: vend_data{ /* Should modified by Customer */
 			vendor_name = "Amlogic"; /* Max Chars: 8 */
+			product_desc = "MBox Meson Ref"; /* Max Chars: 16 */
 			/* standards.ieee.org/develop/regauth/oui/oui.txt */
 			vendor_id = <0x000000>;
 		};
@@ -1437,7 +1438,7 @@
 			ocr_avail = <0x200080>; /**VDD voltage 3.3 ~ 3.4 */
 			max_req_size = <0x20000>; /**128KB*/
 			gpio_dat3 = <&gpio GPIOC_3 GPIO_ACTIVE_HIGH>;
-			jtag_pin = <&gpio GPIOC_0 GPIO_ACTIVE_HIGH>;
+			jtag_pin = <&gpio GPIOC_1 GPIO_ACTIVE_HIGH>;
 			gpio_cd = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
 			card_type = <5>;
 			/* 3:sdio device(ie:sdio-wifi),
@@ -1506,7 +1507,7 @@
 			ocr_avail = <0x200080>; /**VDD voltage 3.3 ~ 3.4 */
 			max_req_size = <0x20000>; /**128KB*/
 			gpio_dat3 = <&gpio GPIOC_3 GPIO_ACTIVE_HIGH>;
-			jtag_pin = <&gpio GPIOC_0 GPIO_ACTIVE_HIGH>;
+			jtag_pin = <&gpio GPIOC_1 GPIO_ACTIVE_HIGH>;
 			gpio_cd = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
 			card_type = <5>;
 			/* 3:sdio device(ie:sdio-wifi),

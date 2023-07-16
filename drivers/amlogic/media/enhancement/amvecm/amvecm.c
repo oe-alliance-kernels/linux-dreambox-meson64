@@ -103,6 +103,7 @@ struct work_struct aml_lcd_vlock_param_work;
 #endif
 
 static struct amvecm_dev_s amvecm_dev;
+static struct resource *res_viu2_vsync_irq;
 
 spinlock_t vpp_lcd_gamma_lock;
 
@@ -118,6 +119,11 @@ static s16 saturation_mb;
 static s16 saturation_ma_shift;
 static s16 saturation_mb_shift;
 
+static int cm2_hue_array[ecm2colormd_max][3];
+static int cm2_luma_array[ecm2colormd_max][3];
+static int cm2_sat_array[ecm2colormd_max][3];
+static int cm2_hue_by_hs_array[ecm2colormd_max][3];
+
 unsigned int sr1_reg_val[101];
 unsigned int sr1_ret_val[101];
 struct vpp_hist_param_s vpp_hist_param;
@@ -126,13 +132,14 @@ static unsigned int pc_mode = 0xff;
 static unsigned int pc_mode_last = 0xff;
 static struct hdr_metadata_info_s vpp_hdr_metadata_s;
 unsigned int atv_source_flg;
-/*bit0: brightness
- *bit1: brightness2
- *bit2: saturation_hue
- *bit3: saturation_hue_post
- *bit4: contrast
- *bit5: contrast2
- */
+
+#define VDJ_FLAG_BRIGHTNESS		BIT(0)
+#define VDJ_FLAG_BRIGHTNESS2		BIT(1)
+#define VDJ_FLAG_SAT_HUE		BIT(2)
+#define VDJ_FLAG_SAT_HUE_POST		BIT(3)
+#define VDJ_FLAG_CONTRAST		BIT(4)
+#define VDJ_FLAG_CONTRAST2		BIT(5)
+
 static int vdj_mode_flg;
 struct am_vdj_mode_s vdj_mode_s;
 
@@ -198,6 +205,8 @@ unsigned int sr_demo_flag;
 
 bool pd_detect_en;
 int pd_fix_lvl = PD_HIG_LVL;
+
+unsigned int gmv_th = 17;
 
 static int wb_init_bypass_coef[24] = {
 	0, 0, 0, /* pre offset */
@@ -266,13 +275,13 @@ static int amvecm_set_brightness2(int val)
 {
 	if (get_cpu_type() <= MESON_CPU_MAJOR_ID_GXTVBB)
 		WRITE_VPP_REG_BITS(VPP_VADJ2_Y,
-			vdj_mode_s.brightness2, 8, 9);
+			val, 8, 9);
 	else if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
 		WRITE_VPP_REG_BITS(VPP_VADJ2_Y_2,
-			vdj_mode_s.brightness2, 8, 11);
+			val, 8, 11);
 	else
 		WRITE_VPP_REG_BITS(VPP_VADJ2_Y,
-			vdj_mode_s.brightness2 >> 1, 8, 10);
+			val >> 1, 8, 10);
 
 	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
 		WRITE_VPP_REG_BITS(VPP_VADJ2_MISC, 1, 0, 1);
@@ -800,6 +809,8 @@ static void vpp_backup_histgram(struct vframe_s *vf)
 	vpp_hist_param.vpp_pixel_sum = vf->prop.hist.vpp_pixel_sum;
 	for (i = 0; i < 64; i++)
 		vpp_hist_param.vpp_histgram[i] = vf->prop.hist.vpp_gamma[i];
+	for (i = 0; i < 128; i++)
+		vpp_hist_param.hdr_histgram[i] = hdr_hist[NUM_HDR_HIST - 1][i];
 }
 
 static void vpp_dump_histgram(void)
@@ -807,11 +818,25 @@ static void vpp_dump_histgram(void)
 	uint i;
 
 	pr_info("%s:\n", __func__);
+	if (hdr_source_type == HDRTYPE_HDR10) {
+		pr_info("\t dump_hdr_hist begin\n");
+		for (i = 0; i < 128; i++) {
+			pr_info(
+				"[%d]0x%-8x\t", i,
+				hdr_hist[NUM_HDR_HIST - 1][i]);
+			if ((i + 1) % 8 == 0)
+				pr_info("\n");
+		}
+		pr_info("\t dump_hdr_hist done\n");
+	}
+
+	pr_info("\n\t dump_dnlp_hist begin\n");
 	for (i = 0; i < 64; i++) {
 		pr_info("[%d]0x%-8x\t", i, vpp_hist_param.vpp_histgram[i]);
 		if ((i+1)%8 == 0)
 			pr_info("\n");
 	}
+	pr_info("\n\t dump_dnlp_hist done\n");
 }
 
 void vpp_get_hist_en(void)
@@ -1077,6 +1102,16 @@ void vpp_demo_config(struct vframe_s *vf)
 	}
 }
 
+void vpp_game_mode_process(struct vframe_s *vf)
+{
+	if (vf->flag & VFRAME_FLAG_GAME_MODE) {
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+			WRITE_VPP_REG_BITS(VPP_VADJ1_MISC, 0, 0, 1);
+		else
+			WRITE_VPP_REG_BITS(VPP_VADJ_CTRL, 0, 0, 1);
+	}
+}
+
 void amvecm_dejaggy_patch(struct vframe_s *vf)
 {
 	if (!vf) {
@@ -1088,7 +1123,7 @@ void amvecm_dejaggy_patch(struct vframe_s *vf)
 	if ((vf->height == 1080) &&
 		(vf->width == 1920) &&
 		(vf->di_pulldown & (1 << 3)) &&
-		(vf->di_pulldown & 0x7)) {
+		((vf->di_pulldown & 0x7) || ((vf->di_gmv / 10000) >= gmv_th))) {
 		if (pd_detect_en == 1)
 			return;
 		pd_detect_en = 1;
@@ -1109,7 +1144,8 @@ void amvecm_video_latch(void)
 	cm_latch_process();
 	/*amvecm_size_patch();*/
 	ve_dnlp_latch_process();
-	ve_lcd_gamma_process();
+	if (vpp_get_encl_viu_mux() == 1)
+		ve_lcd_gamma_process();
 	lvds_freq_process();
 /* #if (MESON_CPU_TYPE >= MESON_CPU_TYPE_MESONG9TV) */
 	if (0) {
@@ -1192,15 +1228,18 @@ int amvecm_on_vs(
 	if (vd_path != VD1_PATH)
 		return result;
 
-	if (!is_dolby_vision_on())
-		get_hdr_source_type();
-
 	/* add some flag to trigger */
 	if (vf) {
 		/*gxlx sharpness adaptive setting*/
 		if (is_meson_gxlx_cpu())
 			amve_sharpness_adaptive_setting(vf,
 				sps_h_en, sps_v_en);
+
+		vpp_game_mode_process(vf);
+
+		if (
+			(pc_mode != 0) &&
+			(!(vf->flag & VFRAME_FLAG_GAME_MODE))) {
 		amvecm_bricon_process(
 			vd1_brightness,
 			vd1_contrast + vd1_contrast_offset, vf);
@@ -1208,6 +1247,7 @@ int amvecm_on_vs(
 		amvecm_color_process(
 			saturation_pre + saturation_offset,
 			hue_pre, vf);
+		}
 
 		vpp_demo_config(vf);
 	}
@@ -1238,6 +1278,13 @@ void refresh_on_vs(struct vframe_s *vf)
 	}
 }
 EXPORT_SYMBOL(refresh_on_vs);
+
+static irqreturn_t amvecm_viu2_vsync_isr(int irq, void *dev_id)
+{
+	if (vpp_get_encl_viu_mux() == 2)
+		ve_lcd_gamma_process();
+	return IRQ_HANDLED;
+}
 
 static int amvecm_open(struct inode *inode, struct file *file)
 {
@@ -1363,7 +1410,6 @@ static int amvecm_set_saturation_hue_post(int val1,
 		62,	68,  74,      /*1~12*/	80,   86,   92,	98,  104,
 		109,  115,  121,  126,  132, 137, 142, 147 /*13~25*/
 	};
-
 	hue_cos_len = sizeof(hue_cos)/sizeof(int);
 	hue_sin_len = sizeof(hue_sin)/sizeof(int);
 	i = (val2 > 0) ? val2 : -val2;
@@ -1466,7 +1512,7 @@ static void hdr_tone_mapping_get(
 
 	if (hdr_tm) {
 		for (i = 0; i < length; i++)
-			oo_y_lut_hdr_sdr[i] = hdr_tm[i];
+			oo_y_lut_hdr_sdr_def[i] = hdr_tm[i];
 	}
 
 	vecm_latch_flag |= FLAG_HDR_OOTF_LATCH;
@@ -1474,7 +1520,7 @@ static void hdr_tone_mapping_get(
 	if (debug_amvecm & 4) {
 		for (i = 0; i < length; i++) {
 			pr_info("oo_y_lut_hdr_sdr[%d] = %d",
-				i, oo_y_lut_hdr_sdr[i]);
+				i, oo_y_lut_hdr_sdr_def[i]);
 			if (i % 8 == 0)
 				pr_info("\n");
 		}
@@ -1784,11 +1830,11 @@ static long amvecm_ioctl(struct file *file,
 			break;
 		}
 		vdj_mode_flg = vdj_mode_s.flag;
-		if (vdj_mode_flg & 0x1) { /*brightness*/
+		if (vdj_mode_flg & VDJ_FLAG_BRIGHTNESS) { /*brightness*/
 			vd1_brightness = vdj_mode_s.brightness;
 			vecm_latch_flag |= FLAG_VADJ1_BRI;
 		}
-		if (vdj_mode_flg & 0x2) { /*brightness2*/
+		if (vdj_mode_flg & VDJ_FLAG_BRIGHTNESS2) { /*brightness2*/
 			if ((vdj_mode_s.brightness2 < -1024) ||
 				(vdj_mode_s.brightness2 > 1023)) {
 				pr_amvecm_dbg("load brightness2 value invalid!!!\n");
@@ -1796,36 +1842,35 @@ static long amvecm_ioctl(struct file *file,
 			}
 			ret = amvecm_set_brightness2(vdj_mode_s.brightness2);
 		}
-		if (vdj_mode_flg & 0x4)	{ /*saturation_hue*/
+		if (vdj_mode_flg & VDJ_FLAG_SAT_HUE)	{ /*saturation_hue*/
 			ret =
 			amvecm_set_saturation_hue(vdj_mode_s.saturation_hue);
 		}
-		if (vdj_mode_flg & 0x8) { /*saturation_hue_post*/
-			int parsed[2];
-			int saturation_hue_post;
-			char *buf;
+		if (vdj_mode_flg & VDJ_FLAG_SAT_HUE_POST) {
+			/*saturation_hue_post*/
+			int sat_post, hue_post, sat_hue_post;
 
-			saturation_hue_post = vdj_mode_s.saturation_hue_post;
-			buf = (char *) &saturation_hue_post;
-			if (likely(parse_para_pq(buf, 2, parsed) != 2)) {
-				ret = -EINVAL;
-				break;
-			}
-			ret = amvecm_set_saturation_hue_post(parsed[0],
-				 parsed[1]);
+			sat_hue_post = vdj_mode_s.saturation_hue;
+			sat_post = (((sat_hue_post >> 16) & 0xffff) / 2) - 128;
+			hue_post = sat_hue_post & 0xffff;
+			if (hue_post >= 0 && hue_post <= 150)
+				hue_post = hue_post / 6;
+			else
+				hue_post = (hue_post - 1024) / 6;
+			ret =
+			amvecm_set_saturation_hue_post(sat_post, hue_post);
 			if (ret < 0)
 				break;
 		}
 		if (vdj_mode_flg & 0x10) { /*contrast*/
-			if ((vdj_mode_s.contrast < -1024)
-				|| (vdj_mode_s.contrast > 1024)) {
+			if ((vdj_mode_s.contrast < -1024) ||
+			    (vdj_mode_s.contrast > 1023)) {
 				ret = -EINVAL;
 				pr_amvecm_dbg("[amvecm..] ioctrl contrast value invalid!!\n");
 				break;
 			}
 			vd1_contrast = vdj_mode_s.contrast;
 			vecm_latch_flag |= FLAG_VADJ1_CON;
-			vecm_latch_flag |= FLAG_VADJ1_COLOR;
 		}
 		if (vdj_mode_flg & 0x20) { /*constract2*/
 			if ((vdj_mode_s.contrast2 < -127)
@@ -2231,6 +2276,18 @@ static ssize_t amvecm_dnlp_debug_store(struct class *cla,
 					pr_info("%s\n", stemp);
 			} else
 				pr_info("error cmd\n");
+		} else if (!strcmp(parm[1], "ve_dnlp_tgt_10b")) {
+			/*read only curve*/
+			if (!parm[2]) {
+				pr_info("error cmd\n");
+				goto free_buf;
+			} else if (!strcmp(parm[2], "all")) {
+				for (i = 0; i < 65; i++)
+					d_convert_str(ve_dnlp_tgt_10b_copy[i],
+						      i, stemp, 4, 10);
+					pr_info("%s\n", stemp);
+			} else
+				pr_info("error cmd\n");
 		} else if (!strcmp(parm[1], "GmScurve")) {
 			/*read only curve*/
 			if (parm[2] == NULL) {
@@ -2618,13 +2675,12 @@ static ssize_t amvecm_contrast_store(struct class *cla,
 	int val;
 
 	r = sscanf(buf, "%d\n", &val);
-	if ((r != 1) || (val < -1024) || (val > 1024))
+	if ((r != 1) || (val < -1024) || (val > 1023))
 		return -EINVAL;
 
 	vd1_contrast = val;
 	/*vecm_latch_flag |= FLAG_BRI_CON;*/
 	vecm_latch_flag |= FLAG_VADJ1_CON;
-	vecm_latch_flag |= FLAG_VADJ1_COLOR;
 	return count;
 }
 
@@ -2692,8 +2748,6 @@ void vpp_vd_adj1_saturation_hue(signed int sat_val,
 	if (mb < -512)
 		mb = -512;
 	mab =  ((ma & 0x3ff) << 16) | (mb & 0x3ff);
-	pr_info("\n[amvideo..] saturation_pre:%d hue_pre:%d mab:%x\n",
-			sat_val, hue_val, mab);
 	if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
 		WRITE_VPP_REG(VPP_VADJ1_MA_MB_2, mab);
 	else
@@ -3860,22 +3914,82 @@ static ssize_t amvecm_hdr_dbg_store(struct class *cla,
 {
 	long val = 0;
 	char *buf_orig, *parm[5] = {NULL};
+	int i;
+	int curve_val[65] = {0};
+	char *stemp = NULL;
 
 	if (!buf)
 		return count;
+
+	stemp = kmalloc(400, GFP_KERNEL);
+	if (!stemp)
+		return 0;
+	memset(stemp, 0, 400);
+
 	buf_orig = kstrdup(buf, GFP_KERNEL);
 	parse_param_amvecm(buf_orig, (char **)&parm);
 
-	if (!strncmp(parm[0], "hdr_dbg", 10)) {
-		if (kstrtoul(parm[1], 16, &val) < 0) {
-			kfree(buf_orig);
-			return -EINVAL;
-		}
+	if (!strncmp(parm[0], "hdr_dbg", 7)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
 		debug_hdr = val;
 		pr_info("debug_hdr=0x%x\n", debug_hdr);
-	} else
+	} else if (!strncmp(parm[0], "hdr10_pr", 8)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_pr = val;
+		pr_info("hdr10_pr=0x%x\n", hdr10_pr);
+	} else if (!strncmp(parm[0], "clip_disable", 12)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_clip_disable = val;
+		pr_info("hdr10_clip_disable=0x%x\n",
+			hdr10_clip_disable);
+	} else if (!strncmp(parm[0], "force_clip", 10)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_force_clip = val;
+		pr_info("hdr10_force_clip=0x%x\n", hdr10_force_clip);
+	} else if (!strncmp(parm[0], "clip_luma", 9)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_clip_luma = val;
+		pr_info("clip_luma=0x%x\n", hdr10_clip_luma);
+	} else if (!strncmp(parm[0], "clip_margin", 11)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_clip_margin = val;
+		pr_info("hdr10_clip_margin=0x%x\n", hdr10_clip_margin);
+	} else if (!strncmp(parm[0], "clip_mode", 9)) {
+		if (kstrtoul(parm[1], 16, &val) < 0)
+			goto free_buf;
+		hdr10_clip_mode = val;
+		pr_info("hdr10_clip_mode=0x%x\n", hdr10_clip_mode);
+	} else if (!strncmp(parm[0], "hdr_sdr_ootf", 12)) {
+		for (i = 0; i < HDR2_OOTF_LUT_SIZE; i++) {
+			pr_info("%d ", oo_y_lut_hdr_sdr_def[i]);
+			if ((i + 1) % 10 == 0)
+				pr_info("\n");
+		}
+		pr_info("\n");
+	} else if (!strncmp(parm[0], "cgain_lut", 9)) {
+		if (!strncmp(parm[1], "rv", 2)) {
+			for (i = 0; i < 65; i++)
+				d_convert_str(
+					cgain_lut_bypass[i],
+					i, stemp, 4, 10);
+				pr_info("%s\n", stemp);
+		} else if (!strncmp(parm[1], "wv", 2)) {
+			str_sapr_to_d(parm[2], curve_val, 5);
+			for (i = 0; i < 65; i++)
+				cgain_lut_bypass[i] = curve_val[i];
+		}
+	} else {
 		pr_info("error cmd\n");
+	}
 
+free_buf:
+	kfree(stemp);
 	kfree(buf_orig);
 	return count;
 }
@@ -3935,9 +4049,12 @@ void pc_mode_process(void)
 	if ((pc_mode == 1) && (pc_mode != pc_mode_last)) {
 		/* open dnlp clock gate */
 		dnlp_en = 1;
+		lc_en = 1;
 		ve_enable_dnlp();
 		/* open cm clock gate */
-		cm_en = 1;
+		if (!(is_meson_g12a_cpu() || is_meson_g12b_cpu() ||
+		      is_meson_sm1_cpu()))
+			cm_en = 1;
 			/* sharpness on */
 		VSYNC_WR_MPEG_REG_BITS(
 			SRSHARP0_PK_NR_ENABLE + sr_offset[0],
@@ -3988,10 +4105,15 @@ void pc_mode_process(void)
 			VSYNC_WR_MPEG_REG_BITS(SRSHARP1_SR3_DERING_CTRL
 				+ sr_offset[1], 1, 28, 3);
 		}
-		VSYNC_WR_MPEG_REG(VPP_VADJ_CTRL, 0xd);
+
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+			WRITE_VPP_REG_BITS(VPP_VADJ1_MISC, 1, 0, 1);
+		else
+			VSYNC_WR_MPEG_REG(VPP_VADJ_CTRL, 0xd);
 		pc_mode_last = pc_mode;
 	} else if ((pc_mode == 0) && (pc_mode != pc_mode_last)) {
 		dnlp_en = 0;
+		lc_en = 0;
 		ve_disable_dnlp();
 		cm_en = 0;
 
@@ -4044,7 +4166,12 @@ void pc_mode_process(void)
 			VSYNC_WR_MPEG_REG_BITS(SRSHARP1_SR3_DERING_CTRL
 				+ sr_offset[1], 0, 28, 3);
 		}
-		VSYNC_WR_MPEG_REG(VPP_VADJ_CTRL, 0x0);
+
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+			WRITE_VPP_REG_BITS(VPP_VADJ1_MISC, 0, 0, 1);
+		else
+			VSYNC_WR_MPEG_REG(VPP_VADJ_CTRL, 0x0);
+
 		pc_mode_last = pc_mode;
 	}
 }
@@ -4153,6 +4280,7 @@ void amvecm_sr1_derection_enable(unsigned int enable)
 
 void pq_user_latch_process(void)
 {
+	int i = 0;
 	if (pq_user_latch_flag & PQ_USER_BLK_EN) {
 		pq_user_latch_flag &= ~PQ_USER_BLK_EN;
 		amvecm_black_ext_enable(true);
@@ -4213,6 +4341,47 @@ void pq_user_latch_process(void)
 	} else if (pq_user_latch_flag & PQ_USER_SR1_DERECTION_DIS) {
 		pq_user_latch_flag &= ~PQ_USER_SR1_DERECTION_DIS;
 		amvecm_sr1_derection_enable(false);
+	} else if (
+		pq_user_latch_flag & PQ_USER_CMS_CURVE_SAT ||
+		pq_user_latch_flag & PQ_USER_CMS_CURVE_LUMA ||
+		pq_user_latch_flag & PQ_USER_CMS_CURVE_HUE_HS ||
+		pq_user_latch_flag & PQ_USER_CMS_CURVE_HUE) {
+		if (pq_user_latch_flag & PQ_USER_CMS_CURVE_SAT) {
+			pq_user_latch_flag &= ~PQ_USER_CMS_CURVE_SAT;
+			for (i = 0; i < ecm2colormd_max; i++) {
+				if (cm2_sat_array[i][2] == 1) {
+					cm2_curve_update_sat(i);
+					cm2_sat_array[i][2] = 0;
+				}
+			}
+		}
+		if (pq_user_latch_flag & PQ_USER_CMS_CURVE_LUMA) {
+			pq_user_latch_flag &= ~PQ_USER_CMS_CURVE_LUMA;
+			for (i = 0; i < ecm2colormd_max; i++) {
+				if (cm2_luma_array[i][2] == 1) {
+					cm2_curve_update_luma(i);
+					cm2_luma_array[i][2] = 0;
+				}
+			}
+		}
+		if (pq_user_latch_flag & PQ_USER_CMS_CURVE_HUE_HS) {
+			pq_user_latch_flag &= ~PQ_USER_CMS_CURVE_HUE_HS;
+			for (i = 0; i < ecm2colormd_max; i++) {
+				if (cm2_hue_by_hs_array[i][2] == 1) {
+					cm2_curve_update_hue_by_hs(i);
+					cm2_hue_by_hs_array[i][2] = 0;
+				}
+			}
+		}
+		if (pq_user_latch_flag & PQ_USER_CMS_CURVE_HUE) {
+			pq_user_latch_flag &= ~PQ_USER_CMS_CURVE_HUE;
+			for (i = 0; i < ecm2colormd_max; i++) {
+				if (cm2_hue_array[i][2] == 1) {
+					cm2_curve_update_hue(i);
+					cm2_hue_array[i][2] = 0;
+				}
+			}
+		}
 	}
 }
 
@@ -4737,8 +4906,10 @@ static void amvecm_pq_enable(int enable)
 		amvecm_wb_enable(true);
 
 		vecm_latch_flag |= FLAG_GAMMA_TABLE_EN;
-
-		WRITE_VPP_REG_BITS(VPP_VADJ_CTRL, 1, 0, 1);
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+			WRITE_VPP_REG_BITS(VPP_VADJ1_MISC, 1, 0, 1);
+		else
+			WRITE_VPP_REG_BITS(VPP_VADJ_CTRL, 1, 0, 1);
 	} else {
 		vecm_latch_flag |= FLAG_VE_DNLP_DIS;
 
@@ -4809,7 +4980,10 @@ static void amvecm_pq_enable(int enable)
 
 		vecm_latch_flag |= FLAG_GAMMA_TABLE_DIS;
 
-		WRITE_VPP_REG_BITS(VPP_VADJ_CTRL, 0, 0, 1);
+		if (get_cpu_type() >= MESON_CPU_MAJOR_ID_G12A)
+			WRITE_VPP_REG_BITS(VPP_VADJ1_MISC, 0, 0, 1);
+		else
+			WRITE_VPP_REG_BITS(VPP_VADJ_CTRL, 0, 0, 1);
 	}
 }
 
@@ -4950,11 +5124,6 @@ static void vpp_clip_config(unsigned int mode_sel, unsigned int color,
 	WRITE_VPP_REG(addr_clipbot, value_clipbot);
 }
 
-static int cm2_hue_array[eCM2ColorMd_max][2];
-static int cm2_luma_array[eCM2ColorMd_max][2];
-static int cm2_sat_array[eCM2ColorMd_max][2];
-static int cm2_hue_by_hs_array[eCM2ColorMd_max][2];
-
 #define MAX_CLIP_VAL ((1<<30)-1)
 static ssize_t amvecm_clamp_color_top_show(struct class *cla,
 			struct class_attribute *attr, char *buf)
@@ -5002,7 +5171,7 @@ static ssize_t amvecm_cm2_hue_show(struct class *cla,
 	int i;
 	int pos = 0;
 
-	for (i = 0; i < eCM2ColorMd_max; i++)
+	for (i = 0; i < ecm2colormd_max; i++)
 		pos += sprintf(buf + pos, "%d %d %d\n", i,
 			cm2_hue_array[i][0], cm2_hue_array[i][1]);
 	return pos;
@@ -5034,8 +5203,10 @@ static ssize_t amvecm_cm2_hue_store(struct class *cla,
 			goto kfree_buf;
 
 		cm2_hue_array[color_mode][1] = val;
+		cm2_hue_array[color_mode][2] = 1;
 		cm2_hue(color_mode, cm2_hue_array[color_mode][0],
 		    cm2_hue_array[color_mode][1]);
+		pq_user_latch_flag |= PQ_USER_CMS_CURVE_HUE;
 		pr_info("cm2_hue ok\n");
 	}
 	kfree(buf_orig);
@@ -5052,7 +5223,7 @@ static ssize_t amvecm_cm2_luma_show(struct class *cla,
 	int i;
 	int pos = 0;
 
-	for (i = 0; i < eCM2ColorMd_max; i++)
+	for (i = 0; i < ecm2colormd_max; i++)
 		pos += sprintf(buf + pos, "%d %d %d\n", i,
 			cm2_luma_array[i][0], cm2_luma_array[i][1]);
 	return pos;
@@ -5084,8 +5255,10 @@ static ssize_t amvecm_cm2_luma_store(struct class *cla,
 			goto kfree_buf;
 
 		cm2_luma_array[color_mode][1] = val;
+		cm2_luma_array[color_mode][2] = 1;
 		cm2_luma(color_mode, cm2_luma_array[color_mode][0],
 		    cm2_luma_array[color_mode][1]);
+		pq_user_latch_flag |= PQ_USER_CMS_CURVE_LUMA;
 		pr_info("cm2_luma ok\n");
 	}
 	kfree(buf_orig);
@@ -5102,7 +5275,7 @@ static ssize_t amvecm_cm2_sat_show(struct class *cla,
 	int i;
 	int pos = 0;
 
-	for (i = 0; i < eCM2ColorMd_max; i++)
+	for (i = 0; i < ecm2colormd_max; i++)
 		pos += sprintf(buf + pos, "%d %d %d\n", i,
 			cm2_sat_array[i][0], cm2_sat_array[i][1]);
 	return pos;
@@ -5134,8 +5307,10 @@ static ssize_t amvecm_cm2_sat_store(struct class *cla,
 			goto kfree_buf;
 
 		cm2_sat_array[color_mode][1] = val;
+		cm2_sat_array[color_mode][2] = 1;
 		cm2_sat(color_mode, cm2_sat_array[color_mode][0],
 		    cm2_sat_array[color_mode][1]);
+		pq_user_latch_flag |= PQ_USER_CMS_CURVE_SAT;
 		pr_info("cm2_sat ok\n");
 	}
 	kfree(buf_orig);
@@ -5153,7 +5328,7 @@ static ssize_t amvecm_cm2_hue_by_hs_show(struct class *cla,
 	int i;
 	int pos = 0;
 
-	for (i = 0; i < eCM2ColorMd_max; i++)
+	for (i = 0; i < ecm2colormd_max; i++)
 		pos += sprintf(buf + pos, "%d %d %d\n", i,
 			cm2_hue_by_hs_array[i][0], cm2_hue_by_hs_array[i][1]);
 	return pos;
@@ -5186,8 +5361,10 @@ static ssize_t amvecm_cm2_hue_by_hs_store(struct class *cla,
 			goto kfree_buf;
 
 		cm2_hue_by_hs_array[color_mode][1] = val;
+		cm2_hue_by_hs_array[color_mode][2] = 1;
 		cm2_hue_by_hs(color_mode, cm2_hue_by_hs_array[color_mode][0],
 		    cm2_hue_by_hs_array[color_mode][1]);
+		pq_user_latch_flag |= PQ_USER_CMS_CURVE_HUE_HS;
 		pr_info("cm2_hue_by_hs ok\n");
 	}
 	kfree(buf_orig);
@@ -5853,6 +6030,18 @@ static ssize_t amvecm_debug_store(struct class *cla,
 			pd_fix_lvl = PD_DEF_LVL;
 		else
 			pd_fix_lvl = val;
+	} else if (!strcmp(parm[0], "gmv_th")) {
+		if (parm[1]) {
+			if (kstrtoul(parm[1], 10, &val) < 0)
+				goto free_buf;
+		}
+		gmv_th = val;
+	} else if (!strcmp(parm[0], "post2mtx")) {
+		if (parm[1]) {
+			if (kstrtoul(parm[1], 16, &val) < 0)
+				goto free_buf;
+			mtx_setting(POST2_MTX, val, 1);
+		}
 	} else
 		pr_info("unsupport cmd\n");
 
@@ -6528,12 +6717,64 @@ static ssize_t amvecm_lc_store(struct class *cls,
 	else if (!strcmp(parm[0], "reg_lmtrat_sigbin")) {
 		if (kstrtoul(parm[1], 10, &val) < 0)
 			goto free_buf;
-		lc_reg_lmtrat_sigbin = val;
-		pr_info("reg_lmtrat_sigbin = %d\n", lc_reg_lmtrat_sigbin);
+		lc_tune_curve.lc_reg_lmtrat_sigbin = val;
+		pr_info(
+			"reg_lmtrat_sigbin = %d\n",
+			lc_tune_curve.lc_reg_lmtrat_sigbin);
+	} else if (!strcmp(parm[0], "reg_lmtrat_thd_max")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_tune_curve.lc_reg_lmtrat_thd_max = val;
+		pr_info(
+			"reg_lmtrat_thd_max = %d\n",
+			lc_tune_curve.lc_reg_lmtrat_thd_max);
+	} else if (!strcmp(parm[0], "reg_lmtrat_thd_black")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_tune_curve.lc_reg_lmtrat_thd_black = val;
+		pr_info(
+			"reg_lmtrat_thd_black = %d\n",
+			lc_tune_curve.lc_reg_lmtrat_thd_black);
+	} else if (!strcmp(parm[0], "reg_thd_black")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_tune_curve.lc_reg_thd_black = val;
+		WRITE_VPP_REG_BITS(
+			LC_STTS_BLACK_INFO,
+			lc_tune_curve.lc_reg_thd_black, 0, 8);
+		pr_info(
+			"reg_thd_black = %d\n",
+			lc_tune_curve.lc_reg_thd_black);
+	} else if (!strcmp(parm[0], "ypkBV_black_thd")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_tune_curve.ypkbv_black_thd = val;
+		pr_info(
+			"ypkBV_black_thd = %d\n",
+			lc_tune_curve.ypkbv_black_thd);
+	} else if (!strcmp(parm[0], "yminV_black_thd")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_tune_curve.yminv_black_thd = val;
+		pr_info(
+			"yminV_black_thd = %d\n",
+			lc_tune_curve.yminv_black_thd);
+	} else if (!strcmp(parm[0], "tune_curve_debug")) {
+		if (kstrtoul(parm[1], 10, &val) < 0)
+			goto free_buf;
+		lc_node_pos_v = val;
+		if (kstrtoul(parm[2], 10, &val) < 0)
+			goto free_buf;
+		lc_node_pos_h = val;
+		pr_info(
+		"tune_curve_debug pos = v %d h %d\n",
+		lc_node_pos_v, lc_node_pos_h);
 	} else if (!strcmp(parm[0], "tune_curve_en")) {
 		if (kstrtoul(parm[1], 10, &val) < 0)
 			goto free_buf;
 		tune_curve_en = val;
+		amlc_debug = 0xc;
+		lc_node_prcnt = 10;
 		pr_info("tune_curve_en = %d\n", tune_curve_en);
 	} else if (!strcmp(parm[0], "detect_signal_range_en")) {
 		if (kstrtoul(parm[1], 10, &val) < 0)
@@ -6573,6 +6814,21 @@ static void def_hdr_sdr_mode(void)
 	if (((READ_VPP_REG(VD1_HDR2_CTRL) >> 13) & 0x1) &&
 		((READ_VPP_REG(OSD1_HDR2_CTRL) >> 13) & 0x1))
 		sdr_mode = 2;
+}
+
+void hdr_hist_config_int(void)
+{
+	VSYNC_WR_MPEG_REG(VD1_HDR2_HIST_CTRL, 0x5510);
+	VSYNC_WR_MPEG_REG(VD1_HDR2_HIST_H_START_END, 0x10000);
+	VSYNC_WR_MPEG_REG(VD1_HDR2_HIST_V_START_END, 0x0);
+
+	VSYNC_WR_MPEG_REG(VD2_HDR2_HIST_CTRL, 0x5510);
+	VSYNC_WR_MPEG_REG(VD2_HDR2_HIST_H_START_END, 0x10000);
+	VSYNC_WR_MPEG_REG(VD2_HDR2_HIST_V_START_END, 0x0);
+
+	VSYNC_WR_MPEG_REG(OSD1_HDR2_HIST_CTRL, 0x5510);
+	VSYNC_WR_MPEG_REG(OSD1_HDR2_HIST_H_START_END, 0x10000);
+	VSYNC_WR_MPEG_REG(OSD1_HDR2_HIST_V_START_END, 0x0);
 }
 
 /* #if (MESON_CPU_TYPE == MESON_CPU_TYPE_MESONG9TV) */
@@ -6623,6 +6879,9 @@ tvchip_pq_setting:
 		cm_init_config(bitdepth);
 		/*lc init*/
 		lc_init(bitdepth);
+
+		if (cpu_after_eq(MESON_CPU_MAJOR_ID_TM2))
+			hdr_hist_config_int();
 	}
 	/*probe close sr0 peaking for switch on video*/
 	WRITE_VPP_REG_BITS(VPP_SRSHARP0_CTRL, 1, 0, 1);
@@ -6971,7 +7230,7 @@ static void aml_vecm_dt_parse(struct platform_device *pdev)
 			if (val == 0)
 				pattern_mask =
 				pattern_mask &
-				(!PATTERN_MASK(PATTERN_75COLORBAR));
+				(~PATTERN_MASK(PATTERN_75COLORBAR));
 			else
 				pattern_mask =
 				pattern_mask |
@@ -6984,7 +7243,7 @@ static void aml_vecm_dt_parse(struct platform_device *pdev)
 			if (val == 0)
 				pattern_mask =
 				pattern_mask &
-				(!PATTERN_MASK(PATTERN_SKIN_TONE_FACE));
+				(~PATTERN_MASK(PATTERN_SKIN_TONE_FACE));
 			else
 				pattern_mask =
 				pattern_mask |
@@ -6997,7 +7256,7 @@ static void aml_vecm_dt_parse(struct platform_device *pdev)
 			if (val == 0)
 				pattern_mask =
 				pattern_mask &
-				(!PATTERN_MASK(PATTERN_GREEN_CORN));
+				(~PATTERN_MASK(PATTERN_GREEN_CORN));
 			else
 				pattern_mask =
 				pattern_mask |
@@ -7058,6 +7317,9 @@ static void aml_vecm_dt_parse(struct platform_device *pdev)
 	else
 		amcm_disable();
 	/* WRITE_VPP_REG_BITS(VPP_MISC, cm_en, 28, 1); */
+
+	res_viu2_vsync_irq =
+		platform_get_resource_byname(pdev, IORESOURCE_IRQ, "vsync2");
 }
 
 #ifdef CONFIG_AMLOGIC_LCD
@@ -7068,9 +7330,9 @@ static int aml_lcd_gamma_notifier(struct notifier_block *nb,
 		return NOTIFY_DONE;
 
 #if 0
-	vpp_set_lcd_gamma_table(video_gamma_table_r.data, H_SEL_R);
-	vpp_set_lcd_gamma_table(video_gamma_table_g.data, H_SEL_G);
-	vpp_set_lcd_gamma_table(video_gamma_table_b.data, H_SEL_B);
+	amve_write_gamma_table(video_gamma_table_r.data, H_SEL_R);
+	amve_write_gamma_table(video_gamma_table_g.data, H_SEL_G);
+	amve_write_gamma_table(video_gamma_table_b.data, H_SEL_B);
 #else
 	vecm_latch_flag |= FLAG_GAMMA_TABLE_R;
 	vecm_latch_flag |= FLAG_GAMMA_TABLE_G;
@@ -7088,6 +7350,21 @@ static struct notifier_block aml_lcd_gamma_nb = {
 static struct notifier_block vlock_notifier_nb = {
 	.notifier_call	= vlock_notify_callback,
 };
+
+static int aml_vecm_viu2_vsync_irq_init(void)
+{
+	if (res_viu2_vsync_irq) {
+		if (request_irq(res_viu2_vsync_irq->start,
+				amvecm_viu2_vsync_isr, IRQF_SHARED,
+				"amvecm_vsync2", (void *)"amvecm_vsync2")) {
+			pr_err("can't request amvecm_vsync2_irq\n");
+		} else {
+			pr_info("request amvecm_vsync2_irq successful\n");
+		}
+	}
+
+	return 0;
+}
 
 static int aml_vecm_probe(struct platform_device *pdev)
 {
@@ -7163,6 +7440,8 @@ static int aml_vecm_probe(struct platform_device *pdev)
 	hdr_init(&amvecm_dev.hdr_d);
 	aml_vecm_dt_parse(pdev);
 
+	aml_vecm_viu2_vsync_irq_init();
+
 	probe_ok = 1;
 	pr_info("%s: ok\n", __func__);
 	return 0;
@@ -7191,6 +7470,11 @@ fail_alloc_region:
 static int __exit aml_vecm_remove(struct platform_device *pdev)
 {
 	struct amvecm_dev_s *devp = &amvecm_dev;
+
+	if (res_viu2_vsync_irq) {
+		free_irq(res_viu2_vsync_irq->start,
+			 (void *)"amvecm_vsync2");
+	}
 
 	hdr_exit();
 	device_destroy(devp->clsp, devp->devno);

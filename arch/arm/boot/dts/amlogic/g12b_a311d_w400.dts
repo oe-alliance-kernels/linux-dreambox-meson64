@@ -360,7 +360,7 @@
 	unifykey{
 		compatible = "amlogic, unifykey";
 		status = "ok";
-		unifykey-num = <16>;
+		unifykey-num = <17>;
 		unifykey-index-0 = <&keysn_0>;
 		unifykey-index-1 = <&keysn_1>;
 		unifykey-index-2 = <&keysn_2>;
@@ -377,6 +377,7 @@
 		unifykey-index-13= <&keysn_13>;
 		unifykey-index-14= <&keysn_14>;
 		unifykey-index-15= <&keysn_15>;
+		unifykey-index-16= <&keysn_16>;
 
 		keysn_0: key_0{
 			key-name = "usid";
@@ -461,6 +462,11 @@
 			key-device = "secure";
 			key-permit = "read","write","del";
 		};
+		keysn_16:key_16{
+			key-name = "attestationdevidbox";// attest dev id box
+			key-device = "secure";
+			key-permit = "read","write","del";
+		};
 	};//End unifykey
 
 	efusekey:efusekey{
@@ -498,6 +504,9 @@
 		gamma_en = <0>;/*1:enabel ;0:disable*/
 		wb_en = <0>;/*1:enabel ;0:disable*/
 		cm_en = <0>;/*1:enabel ;0:disable*/
+
+		interrupts = <0 56 1>;
+		interrupt-names = "vsync2";
 	};
 	amdolby_vision {
 		compatible = "amlogic, dolby_vision_g12a";
@@ -800,7 +809,7 @@
 	sensor: sensor {
 		compatible = "soc, sensor";
 		status = "okay";
-		sensor-name = "imx290"; /*imx290;os08a10;imx227*/
+		sensor-name = "os08a10"; /*imx290;os08a10;imx227*/
 		pinctrl-names="default";
 		pinctrl-0=<&clk12_24_z_pins>;
 		clocks = <&clkc CLKID_24M>;
@@ -813,7 +822,7 @@
 	iq: iq {
 		compatible = "soc, iq";
 		status = "okay";
-		sensor-name = "imx290"; /*imx290;os08a10;imx227*/
+		sensor-name = "os08a10"; /*imx290;os08a10;imx227*/
 	};
 }; /* end of / */
 
@@ -845,7 +854,7 @@
 
 &meson_fb {
 	status = "okay";
-	display_size_default = <1920 1080 1920 2160 32>;
+	display_size_default = <1080 1920 1080 3840 32>; /* portrait panel */
 	mem_size = <0x00800000 0x1980000 0x100000 0x100000 0x800000>;
 	logo_addr = "0x7f800000";
 	mem_alloc = <0>;
@@ -898,12 +907,13 @@
 
 	touchscreen@38 {
 		compatible = "focaltech,fts";
-		status = "disabled";
+		status = "okay";
 		reg = <0x38>;
 		reset-gpio = <&gpio GPIOZ_9 GPIO_ACTIVE_HIGH>;
 		irq-gpio = <&gpio GPIOZ_3 GPIO_ACTIVE_HIGH>;
-		x_max = <720>;
-		y_max = <1280>;
+		x_max = <1280>;
+		y_max = <720>;
+		rotation = <1>;
 		max-touch-number = <10>;
 	};
 };
@@ -921,6 +931,7 @@
 		reg = <0x31>;
 		status = "okay";
 		reset_pin = <&gpio GPIOA_5 0>;
+		no_mclk;
 	};
 
 	tlv320adc3101_32: tlv320adc3101_32@32 {

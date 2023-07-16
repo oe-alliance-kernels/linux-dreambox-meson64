@@ -34,20 +34,20 @@
 #include "hdmi_rx_edid.h"
 
 
-#define RX_VER0 "ver.2019-09-02"
+#define RX_VER0 "ver.2019/11/20"
 /*
  *
  *
  *
  *
  */
-#define RX_VER1 "ver.2019/09/05"
+#define RX_VER1 "ver.2019/11/22"
 /*
  *
  *
  *
  */
-#define RX_VER2 "ver.2019/09/11"
+#define RX_VER2 "ver.2019/11/20"
 
 /*print type*/
 #define	LOG_EN		0x01
@@ -278,6 +278,15 @@ struct rx_video_info {
 #define EMP_BUFF_MAX_PKT_CNT ((EMP_BUFFER_SIZE/2)/32 - 200)
 #define TMDS_DATA_BUFFER_SIZE	0x200000
 
+struct rx_fastswitch_mode {
+	enum hdcp_version_e hdcp_ver[E_PORT_NUM];
+	/* if edid ver is the same after switch
+	 * edid ver in UI, no need to update edid
+	 */
+	enum edid_ver_e	edid_ver[E_PORT_NUM];
+	u8 hdmi5v_sts[E_PORT_NUM];
+	/* uint8_t hpd_sts[E_PORT_NUM]; */
+};
 
 /**
  * @short HDMI RX controller HDCP configuration
@@ -327,6 +336,7 @@ struct vsi_info_s {
 	unsigned int eff_tmax_pq;
 	bool allm_mode;
 	bool hdr10plus;
+	u8 timeout;
 };
 
 #define CHANNEL_STATUS_SIZE   24
@@ -366,6 +376,7 @@ struct aud_info_s {
 	int real_channel_num;
 	int real_sample_size;
 	int real_sr;
+	u32 aud_clk;
 };
 
 struct phy_sts {
@@ -389,8 +400,8 @@ struct emp_buff {
 	phys_addr_t p_addr_b;
 	/*void __iomem *v_addr_a;*/
 	/*void __iomem *v_addr_b;*/
-	void __iomem *storeA;
-	void __iomem *storeB;
+	void __iomem *store_a;
+	void __iomem *store_b;
 	void __iomem *ready;
 	unsigned long irqcnt;
 	unsigned int emppktcnt;
@@ -426,6 +437,7 @@ struct rx_s {
 	/* wrapper */
 	unsigned int state;
 	unsigned int pre_state;
+	struct rx_fastswitch_mode fs_mode;
 	/* recovery mode */
 	unsigned char err_rec_mode;
 	unsigned char err_code;
@@ -561,7 +573,6 @@ extern unsigned int *pd_fifo_buf;
 
 /* for other modules */
 extern int External_Mute(int mute_flag);
-extern void vdac_enable(bool on, unsigned int module_sel);
 extern int rx_is_hdcp22_support(void);
 extern int hdmirx_get_connect_info(void);
 #endif

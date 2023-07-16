@@ -406,6 +406,45 @@ size_t get_fb_rmem_size(int index)
 	return fb_rmem_size[index];
 }
 
+static int set_osd_freescaler(const struct vinfo_s *vinfo, u32 index,
+	const struct fb_var_screeninfo *var)
+{
+	s32 src_x_start = 0, src_x_end = 0;
+	s32 src_y_start = 0, src_y_end = 0;
+	s32 dst_x_start = 0, dst_x_end = 0;
+	s32 dst_y_start = 0, dst_y_end = 0;
+	s32 target_x_end = 0, target_y_end = 0;
+
+	if ((osd_hw.osd_meson_dev.osd_ver == OSD_SIMPLE) && (index >= 1))
+		return -1;
+
+	if (osd_get_position_from_reg(
+		index,
+		&src_x_start, &src_x_end,
+		&src_y_start, &src_y_end,
+		&dst_x_start, &dst_x_end,
+		&dst_y_start, &dst_y_end))
+		return -1;
+
+	target_x_end = vinfo->width - 1;
+	target_y_end = vinfo->height - 1;
+
+	pr_info("outputmode changed to %s, reset osd%d, (%d, %d, %d, %d) -> (%d, %d, %d, %d)\n",
+		vinfo->name, index,
+		dst_x_start, dst_y_start, dst_x_end, dst_y_end,
+		0, 0, target_x_end, target_y_end);
+
+	osd_set_free_scale_mode_hw(index, 1);
+	osd_set_free_scale_enable_hw(index, 0);
+	osd_set_free_scale_axis_hw(index, 0, 0,
+		var->xres - 1, var->yres - 1);
+	osd_update_disp_axis_hw(index, 0, var->xres - 1,
+		0, var->yres - 1, 0, 0, 0);
+	osd_set_window_axis_hw(index, 0, 0, target_x_end, target_y_end);
+	osd_set_free_scale_enable_hw(index, 0x10001);
+	osd_enable_hw(index, 1);
+	return 0;
+}
 
 static void osddev_setup(struct osd_fb_dev_s *fbdev)
 {
@@ -634,7 +673,8 @@ static int osd_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		    var->transp.length, var->transp.offset);
 	fix->visual = color_format_pt->color_type;
 	/* adjust memory length. */
-	fix->line_length = var->xres_virtual * var->bits_per_pixel / 8;
+	fix->line_length =
+		CANVAS_ALIGNED(var->xres_virtual * var->bits_per_pixel / 8);
 	osd_log_dbg(MODULE_BASE, "xvirtual=%d, bpp:%d, line_length=%d\n",
 		var->xres_virtual, var->bits_per_pixel, fix->line_length);
 
@@ -676,6 +716,12 @@ static int osd_set_par(struct fb_info *info)
 			return -1;
 		}
 	}
+
+	if (osd_check_var(&info->var, info) < 0) {
+		osd_log_err("osd_check_var in osd_set_par failed!\n");
+		return -1;
+	}
+
 	virt_end_x = osd_ctrl->disp_start_x + info->var.xres;
 	virt_end_y = osd_ctrl->disp_start_y + info->var.yres;
 	if (virt_end_x > vinfo->width)
@@ -687,6 +733,9 @@ static int osd_set_par(struct fb_info *info)
 	else
 		osd_ctrl->disp_end_y = virt_end_y - 1;
 	osddev_setup((struct osd_fb_dev_s *)info->par);
+
+	if (fbdev->fb_index == DEV_OSD0)
+		set_osd_freescaler(vinfo, fbdev->fb_index, &info->var);
 
 	return 0;
 }
@@ -1164,7 +1213,7 @@ static int osd_compat_ioctl(struct fb_info *info,
 
 static int malloc_osd_memory(struct fb_info *info)
 {
-	int j;
+	int j = 0;
 	int ret = 0;
 	u32 fb_index;
 	int logo_index = -1;
@@ -1423,6 +1472,9 @@ static int malloc_osd_memory(struct fb_info *info)
 		logo_index, fb_index);
 	if (osd_check_fbsize(var, info))
 		return -ENOMEM;
+	/* disable set_osd_logo_freescaler() */
+	if (logo_index == fb_index)
+		set_logo_loaded();
 	/* clear osd buffer if not logo layer */
 	if (((logo_index < 0) || (logo_index != fb_index)) ||
 		(osd_meson_dev.cpu_id == __MESON_CPU_MAJOR_ID_AXG) ||
@@ -1432,14 +1484,16 @@ static int malloc_osd_memory(struct fb_info *info)
 		if (fbdev->fb_mem_vaddr)
 			memset(fbdev->fb_mem_vaddr, 0x0, fbdev->fb_len);
 		if (osd_meson_dev.afbc_type && osd_get_afbc(fb_index)) {
-			for (j = 1; j < OSD_MAX_BUF_NUM; j++) {
-				osd_log_info(
-					"---------------clear fb%d memory %p\n",
-					fb_index,
-					fbdev->fb_mem_afbc_vaddr[j]);
-				memset(fbdev->fb_mem_afbc_vaddr[j],
-					0x0,
-					fbdev->fb_afbc_len[j]);
+			for (j = 0; j < OSD_MAX_BUF_NUM; j++) {
+				if (j > 0) {
+					osd_log_info(
+						"---------------clear fb%d memory %p\n",
+						fb_index,
+						fbdev->fb_mem_afbc_vaddr[j]);
+					memset(fbdev->fb_mem_afbc_vaddr[j],
+					       0x0,
+					       fbdev->fb_afbc_len[j]);
+				}
 			}
 		} else {
 			/* two case in one
@@ -1963,7 +2017,11 @@ int osd_notify_callback(struct notifier_block *block, unsigned long cmd,
 	osd_hw.field_out_en[VIU1] = is_interlaced(vinfo);
 	switch (cmd) {
 	case  VOUT_EVENT_MODE_CHANGE:
-		set_osd_logo_freescaler();
+		if (get_logo_loaded())
+			set_osd_logo_freescaler();
+		else
+			set_osd_freescaler(vinfo, DEV_OSD0,
+				&gp_fbdev_list[DEV_OSD0]->fb_info->var);
 #if 0 /*def LINE_INT_WORK_AROUND */
 		if (osd_hw.osd_meson_dev.cpu_id == __MESON_CPU_MAJOR_ID_G12B &&
 			is_meson_rev_b())
@@ -4283,6 +4341,7 @@ static int osd_probe(struct platform_device *pdev)
 		prop_idx = of_read_ulong(prop, 1);
 	/* Todo: only osd0 */
 	osd_set_free_scale_mode_hw(DEV_OSD0, prop_idx);
+	prop_idx = 0;
 	prop = of_get_property(pdev->dev.of_node, "4k2k_fb", NULL);
 	if (prop)
 		prop_idx = of_read_ulong(prop, 1);
@@ -4290,6 +4349,7 @@ static int osd_probe(struct platform_device *pdev)
 	/* get default display mode from dt */
 	ret = of_property_read_string(pdev->dev.of_node,
 		"display_mode_default", &str);
+	prop_idx = 0;
 	prop = of_get_property(pdev->dev.of_node, "pxp_mode", NULL);
 	if (prop)
 		prop_idx = of_read_ulong(prop, 1);
@@ -4367,7 +4427,7 @@ static int osd_probe(struct platform_device *pdev)
 				(fbdev->color->color_index > 16 ?
 				(fbdev->color->color_index > 24 ?
 				 4 : 3) : 2) : 1);
-		fix->line_length = var->xres_virtual * bpp;
+		fix->line_length = CANVAS_ALIGNED(var->xres_virtual * bpp);
 		fix->smem_start = fbdev->fb_mem_paddr;
 		fix->smem_len = fbdev->fb_len;
 		if (fb_alloc_cmap(&fbi->cmap, 16, 0) != 0) {

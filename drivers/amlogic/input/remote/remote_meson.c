@@ -293,6 +293,8 @@ static bool is_valid_custom(struct remote_dev *dev)
 	if (!chip->ir_contr[chip->ir_work].get_custom_code)
 		return true;
 	custom_code = chip->ir_contr[chip->ir_work].get_custom_code(chip);
+	if (chip->sys_custom_code && chip->sys_custom_code != custom_code)
+		return false;
 	chip->cur_tab = seek_map_tab(chip, custom_code);
 	if (chip->cur_tab) {
 		dev->keyup_delay = chip->cur_tab->tab.release_delay;
@@ -496,6 +498,7 @@ static int get_custom_tables(struct device_node *node,
 	const char *uname;
 	unsigned long flags;
 	struct ir_map_tab_list *ptable;
+	unsigned int i;
 
 	phandle = of_get_property(node, "map", NULL);
 	if (!phandle) {
@@ -600,7 +603,8 @@ static int get_custom_tables(struct device_node *node,
 		spin_lock_irqsave(&chip->slock, flags);
 		list_add_tail(&ptable->list, &chip->map_tab_head);
 		spin_unlock_irqrestore(&chip->slock, flags);
-
+		for (i = 0; i < ptable->tab.map_size; i++)
+			__set_bit(ptable->tab.codemap[i].map.keycode, chip->r_dev->input_device->keybit);
 	}
 	return 0;
 err:
@@ -764,8 +768,8 @@ static int ir_hardware_init(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 	chip->set_register_config(chip, chip->protocol);
-	ret = request_irq(chip->irqno, ir_interrupt, IRQF_SHARED,
-				"keypad", (void *)chip);
+	ret = request_irq(chip->irqno, ir_interrupt, IRQF_SHARED
+		| IRQF_NO_SUSPEND, "keypad", (void *)chip);
 	if (ret < 0)
 		goto error_irq;
 
@@ -801,8 +805,6 @@ static void ir_input_device_init(struct input_dev *dev,
 	dev->id.vendor  = 0x0001;
 	dev->id.product = 0x0001;
 	dev->id.version = 0x0100;
-	dev->rep[REP_DELAY] = 0xffffffff;  /*close input repeat*/
-	dev->rep[REP_PERIOD] = 0xffffffff; /*close input repeat*/
 }
 
 static int remote_probe(struct platform_device *pdev)
@@ -922,7 +924,8 @@ static int remote_resume(struct device *dev)
 	spin_unlock_irqrestore(&chip->slock, flags);
 
 #ifdef CONFIG_AMLOGIC_LEGACY_EARLY_SUSPEND
-	if (get_resume_method() == REMOTE_WAKEUP) {
+	if (get_resume_method() == REMOTE_WAKEUP ||
+	    get_resume_method() == ETH_PHY_WAKEUP) {
 		input_event(chip->r_dev->input_device,
 		    EV_KEY, KEY_POWER, 1);
 		input_sync(chip->r_dev->input_device);

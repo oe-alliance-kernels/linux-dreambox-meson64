@@ -592,7 +592,7 @@ static char *configs_build_prefix(
 		}
 	}
 	if (buf[0] && buf[strlen(buf) - 1] != '.')
-		strncat(buf, ".", size);
+		strlcat(buf, ".", size);
 	return buf;
 }
 
@@ -709,8 +709,8 @@ static int configs_list_nodes_in(struct mconfig_node *node,
 
 		if (mode & LIST_MODE_PATH_PREFIX) {
 			if (node->depth > 0) {/*not root.*/
-				strncat(cprefix, node->name,
-					MAX_PREFIX_NAME + MAX_ITEM_NAME - 1);
+				strlcat(cprefix, node->name,
+					MAX_PREFIX_NAME + MAX_ITEM_NAME);
 			}
 		}
 		list_for_each_safe(node_list, next, &node->son_node_list) {

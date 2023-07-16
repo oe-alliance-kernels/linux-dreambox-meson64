@@ -209,6 +209,7 @@ static void tvafe_state(struct tvafe_dev_s *devp)
 	tvafe_pr_info("skip_vf_num:%d\n", user_param->skip_vf_num);
 	tvafe_pr_info("try_fmt_max_atv:%d\n", try_fmt_max_atv);
 	tvafe_pr_info("try_fmt_max_av:%d\n", try_fmt_max_av);
+	tvafe_pr_info("avout_en:%d\n", user_param->avout_en);
 	tvafe_pr_info("tvafe version :  %s\n", TVAFE_VER);
 }
 
@@ -462,6 +463,13 @@ static ssize_t tvafe_store(struct device *dev,
 			goto tvafe_store_err;
 		pr_info("[tvafe..]%s: set try_fmt_max_av = %d\n",
 			__func__, try_fmt_max_av);
+	} else if (!strncmp(buff, "avout_en", strlen("avout_en"))) {
+		if (parm[1]) {
+			if (kstrtouint(parm[1], 16, &user_param->avout_en) < 0)
+				goto tvafe_store_err;
+		}
+		pr_info("[tvafe..]%s: avout_en = 0x%x\n",
+			__func__, user_param->avout_en);
 	} else if (!strncmp(buff, "dbg_print", strlen("dbg_print"))) {
 		if (parm[1]) {
 			if (kstrtouint(parm[1], 16, &tvafe_dbg_print) < 0)
@@ -476,6 +484,34 @@ static ssize_t tvafe_store(struct device *dev,
 		}
 		pr_info("[tvafe..]%s: tvafe_dbg_print = 0x%x\n",
 			__func__, tvafe_dbg_print);
+	} else if  (!strcmp(parm[0], "shift_cnt_av")) {
+		if (parm[1]) {
+			if (kstrtouint(parm[1], 10, &val) < 0) {
+				pr_info("str->uint error.\n");
+				goto tvafe_store_err;
+			} else {
+				cvd_set_shift_cnt(TVAFE_CVD2_SHIFT_CNT_AV,
+						  val);
+				pr_info("[tvafe]%s: av shift cnt = %d\n",
+					__func__, val);
+			}
+		} else
+			pr_info("[shift_cnt_av]miss parameter,ori val = %d\n",
+				cvd_get_shift_cnt(TVAFE_CVD2_SHIFT_CNT_AV));
+	} else if  (!strcmp(parm[0], "shift_cnt_atv")) {
+		if (parm[1]) {
+			if (kstrtouint(parm[1], 10, &val) < 0) {
+				pr_info("str->uint error.\n");
+				goto tvafe_store_err;
+			} else {
+				cvd_set_shift_cnt(TVAFE_CVD2_SHIFT_CNT_ATV,
+						  val);
+				pr_info("[tvafe]%s: atv shift cnt = %d\n",
+					__func__, val);
+			}
+		} else
+			pr_info("[shift_cnt_atv]miss parameter,ori val = %d\n",
+				cvd_get_shift_cnt(TVAFE_CVD2_SHIFT_CNT_ATV));
 	} else
 		tvafe_pr_info("[%s]:invaild command.\n", __func__);
 	kfree(buf_orig);
@@ -513,6 +549,8 @@ static const char *tvafe_debug_usage_str = {
 "    echo nostd_cnt val(d) > /sys/class/tvafe/tvafe0/debug;set nostd_stable_cnt\n"
 "\n"
 "    echo skip_vf_num val(d) > /sys/class/tvafe/tvafe0/debug;set skip_vf_num for vdin\n"
+"\n"
+"    echo avout_en val(d) > /sys/class/tvafe/tvafe0/debug;set avout\n"
 "\n"
 "    echo print val(h) > /sys/class/tvafe/tvafe0/debug;enable debug print\n"
 "    bit[0]: normal debug info\n"

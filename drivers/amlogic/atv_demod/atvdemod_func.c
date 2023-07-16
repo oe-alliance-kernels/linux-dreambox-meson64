@@ -260,7 +260,7 @@ void atv_dmd_misc(void)
 	/* for audio non-standard signal, first set gain 0 to mute,
 	 * then unmute in detection.
 	 */
-	if (audio_atv_ov || atv_audio_overmodulated_en)
+	if ((audio_atv_ov || atv_audio_overmodulated_en) && non_std_en == 0)
 		aml_audio_valume_gain_set(0);
 	else
 		aml_audio_valume_gain_set(audio_gain_val);
@@ -287,8 +287,8 @@ void atv_dmd_misc(void)
 		atv_dmd_wr_long(APB_BLOCK_ADDR_VDAGC, 0x0c, 0x387c0831);
 		atv_dmd_wr_long(APB_BLOCK_ADDR_CARR_RCVY, 0x24, 0xc020901);
 	} else {
-		if (tuner_id == AM_TUNER_R840 || tuner_id == AM_TUNER_R842
-				|| non_std_en == 4) {
+		if ((tuner_id == AM_TUNER_R840 || tuner_id == AM_TUNER_R842) &&
+		    non_std_en == 4) {
 			/* Reduce target amplitude and response speed */
 			atv_dmd_wr_long(APB_BLOCK_ADDR_AGC_PWM, 0x08,
 					0x17070200);
@@ -2543,5 +2543,47 @@ void aml_audio_overmodulation(int enable)
 					tmp_v);
 		}
 #endif
+	}
+}
+
+void atvdemod_horiz_freq_detection(void)
+{
+	unsigned long data = 0;
+	int field_lock = 0;
+	int line_lock = 0;
+	int line = 0;
+	int std_line = 0;
+	unsigned long horiz_freq = 0;
+
+	data = atv_dmd_rd_long(APB_BLOCK_ADDR_VDAGC, 0x4c);
+	field_lock = data & 0x4;    /* bit2 */
+	line_lock = data & 0x10;    /* bit4 */
+	line = (data >> 6) & 0x3ff; /* bit[15-6] */
+
+	switch (broad_std) {
+	case AML_ATV_DEMOD_VIDEO_MODE_PROP_NTSC:
+	case AML_ATV_DEMOD_VIDEO_MODE_PROP_PAL_M:
+		std_line = 525;
+		break;
+	default:
+		std_line = 625;
+		break;
+	}
+
+	if (field_lock == 0 && line_lock == 0) {
+		/* bit[31-8] */
+		data = atv_dmd_rd_long(APB_BLOCK_ADDR_VDAGC, 0x10);
+
+		/* fh +/- (200 / 0.23841858) */
+		if ((line - std_line) > 7)
+			horiz_freq = freq_hz_cvrt + 0x347;
+		else if ((line - std_line) < -7)
+			horiz_freq = freq_hz_cvrt - 0x347;
+		else
+			horiz_freq = freq_hz_cvrt;
+
+		data = (horiz_freq << 8) | (data & 0xff);
+
+		atv_dmd_wr_long(APB_BLOCK_ADDR_VDAGC, 0x10, data);
 	}
 }

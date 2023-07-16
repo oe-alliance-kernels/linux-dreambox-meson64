@@ -62,9 +62,19 @@ struct lc_alg_param_s {
 	unsigned int dbg_parm4;
 };
 
+struct lc_curve_tune_param_s {
+	int lc_reg_lmtrat_sigbin;
+	int lc_reg_lmtrat_thd_max;
+	int lc_reg_lmtrat_thd_black;
+	int lc_reg_thd_black;
+	int yminv_black_thd;
+	int ypkbv_black_thd;
+
+	/* read back black pixel count */
+	int lc_reg_black_count;
+};
 
 extern int amlc_debug;
-extern int lc_reg_lmtrat_sigbin;
 extern int tune_curve_en;
 extern int detect_signal_range_en;
 extern int detect_signal_range_threshold_black;
@@ -76,6 +86,9 @@ extern unsigned int lc_hist_ve;
 extern unsigned int lc_hist_hs;
 extern unsigned int lc_hist_he;
 extern unsigned int lc_hist_prcnt;
+extern unsigned int lc_node_prcnt;
+extern unsigned int lc_node_pos_h;
+extern unsigned int lc_node_pos_v;
 extern unsigned int lc_curve_prcnt;
 extern int osd_iir_en;
 extern int amlc_iir_debug_en;
@@ -99,6 +112,7 @@ extern int *curve_nodes_cur;
 extern int *lc_hist;/*12*8*17*/
 extern struct ve_lc_curve_parm_s lc_curve_parm_load;
 extern struct lc_alg_param_s lc_alg_parm;
+extern struct lc_curve_tune_param_s lc_tune_curve;
 
 extern void lc_init(int bitdepth);
 extern void lc_process(struct vframe_s *vf,

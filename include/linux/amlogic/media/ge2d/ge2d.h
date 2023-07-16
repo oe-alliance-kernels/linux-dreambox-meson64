@@ -628,14 +628,6 @@ struct ge2d_cmd_s {
 	unsigned char    hang_flag;
 };
 
-struct ge2d_canvas_cfg_s {
-	int canvas_used;
-	int canvas_index;
-	unsigned int stride;
-	unsigned int height;
-	unsigned long phys_addr;
-};
-
 struct ge2d_dma_cfg_s {
 	int dma_used;
 	void *dma_cfg;
@@ -651,9 +643,6 @@ struct ge2d_config_s {
 	unsigned int	v_scale_coef_type;
 	unsigned int	h_scale_coef_type;
 	unsigned int	update_flag;
-	struct ge2d_canvas_cfg_s src_canvas_cfg[MAX_PLANE];
-	struct ge2d_canvas_cfg_s src2_canvas_cfg[MAX_PLANE];
-	struct ge2d_canvas_cfg_s dst_canvas_cfg[MAX_PLANE];
 	struct ge2d_dma_cfg_s src_dma_cfg[MAX_PLANE];
 	struct ge2d_dma_cfg_s src2_dma_cfg[MAX_PLANE];
 	struct ge2d_dma_cfg_s dst_dma_cfg[MAX_PLANE];
@@ -821,9 +810,16 @@ struct config_para_ex_s {
 	struct src_key_ctrl_s  src_key;
 	struct src_key_ctrl_s  src2_key;
 
+	unsigned char src1_cmult_asel;
+	unsigned char src2_cmult_asel;
+#ifdef CONFIG_GE2D_SRC2
+	unsigned char src2_cmult_ad;
+#endif
 	int alu_const_color;
+	unsigned char src1_gb_alpha_en;
 	unsigned int src1_gb_alpha;
 #ifdef CONFIG_GE2D_SRC2
+	unsigned char src2_gb_alpha_en;
 	unsigned int src2_gb_alpha;
 #endif
 	unsigned int op_mode;
@@ -864,6 +860,11 @@ struct compat_config_para_ex_s {
 	struct src_key_ctrl_s  src_key;
 	struct src_key_ctrl_s  src2_key;
 
+	unsigned char src1_cmult_asel;
+	unsigned char src2_cmult_asel;
+#ifdef CONFIG_GE2D_SRC2
+	unsigned char src2_cmult_ad;
+#endif
 	int alu_const_color;
 	unsigned int src1_gb_alpha;
 #ifdef CONFIG_GE2D_SRC2

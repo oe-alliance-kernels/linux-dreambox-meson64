@@ -34,6 +34,7 @@
 #include <linux/arm-smccc.h>
 #include "common.h"
 #include "hdmi_tx_reg.h"
+#include "mach_reg.h"
 #include "reg_ops.h"
 
 /* For gxb/gxl/gxm */
@@ -378,7 +379,6 @@ void hd_set_reg_bits(unsigned int addr, unsigned int value,
 }
 EXPORT_SYMBOL(hd_set_reg_bits);
 
-
 unsigned int hdmitx_rd_reg_normal(unsigned int addr)
 {
 	unsigned long offset = (addr & DWC_OFFSET_MASK) >> 24;
@@ -391,6 +391,57 @@ unsigned int hdmitx_rd_reg_normal(unsigned int addr)
 
 	pr_debug(REG "%s rd[0x%x] 0x%x\n", offset ? "DWC" : "TOP",
 			addr, data);
+	return data;
+}
+
+void hdmitx_wr_reg_normal(unsigned int addr, unsigned int data)
+{
+	unsigned long offset = (addr & DWC_OFFSET_MASK) >> 24;
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(0x82000019,
+			(unsigned long)addr,
+			data,
+			0, 0, 0, 0, 0, &res);
+
+	pr_debug("%s wr[0x%x] 0x%x\n", offset ? "DWC" : "TOP",
+			addr, data);
+}
+
+static DEFINE_SPINLOCK(reg_lock);
+unsigned int hdmitx_rd_reg_gxl_gxm(unsigned int addr)
+{
+	unsigned int data = 0;
+	unsigned long offset = (addr & DWC_OFFSET_MASK) >> 24;
+	unsigned long flags, fiq_flag;
+	if (addr & SEC_OFFSET) {
+		addr = addr & 0xffff;
+		hdmitx_wr_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_ADDR_PORT_SEC + offset), addr);
+		hdmitx_wr_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_ADDR_PORT_SEC + offset), addr);
+		data = hdmitx_rd_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_DATA_PORT_SEC + offset));
+	} else {
+		addr = addr & 0xffff;
+		spin_lock_irqsave(&reg_lock, flags);
+		raw_local_save_flags(fiq_flag);
+		local_fiq_disable();
+
+/*
+ * If addr is located at 0x5020 ~ 0x667e in DWC,
+ * then should operate twice
+ */
+		hd_write_reg(P_HDMITX_ADDR_PORT + offset, addr);
+		hd_write_reg(P_HDMITX_ADDR_PORT + offset, addr);
+		data = hd_read_reg(P_HDMITX_DATA_PORT + offset);
+		data = hd_read_reg(P_HDMITX_DATA_PORT + offset);
+
+		raw_local_irq_restore(fiq_flag);
+		spin_unlock_irqrestore(&reg_lock, flags);
+	}
+	pr_debug("%s rd[0x%x] 0x%x\n", offset ? "DWC" : "TOP",
+		addr, data);
 	return data;
 }
 
@@ -432,26 +483,50 @@ unsigned int hdmitx_rd_reg(unsigned int addr)
 	unsigned int data;
 	struct hdmitx_dev *hdev = get_hdmitx_device();
 
-	if (hdev->chip_type >= MESON_CPU_ID_G12A)
+	switch(hdev->chip_type) {
+	case MESON_CPU_ID_GXL:
+	case MESON_CPU_ID_GXM:
+		data = hdmitx_rd_reg_gxl_gxm(addr);
+		break;
+	case MESON_CPU_ID_G12A:
+	case MESON_CPU_ID_G12B:
 		data = hdmitx_rd_reg_g12a(addr);
-	else
+		break;
+	default:
 		data = hdmitx_rd_reg_normal(addr);
+		break;
+	}
 	return data;
 }
 EXPORT_SYMBOL(hdmitx_rd_reg);
 
-void hdmitx_wr_reg_normal(unsigned int addr, unsigned int data)
+void hdmitx_wr_reg_gxl_gxm(unsigned int addr, unsigned int data)
 {
+	unsigned long flags, fiq_flag;
 	unsigned long offset = (addr & DWC_OFFSET_MASK) >> 24;
-	struct arm_smccc_res res;
 
-	arm_smccc_smc(0x82000019,
-			(unsigned long)addr,
-			data,
-			0, 0, 0, 0, 0, &res);
+	if (addr & SEC_OFFSET) {
+		addr = addr & 0xffff;
+		hdmitx_wr_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_ADDR_PORT_SEC + offset), addr);
+		hdmitx_wr_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_ADDR_PORT_SEC + offset), addr);
+		hdmitx_wr_reg_normal((unsigned long)
+			TO_PHY_ADDR(P_HDMITX_DATA_PORT_SEC + offset), data);
+	} else {
+		addr = addr & 0xffff;
+		spin_lock_irqsave(&reg_lock, flags);
+		raw_local_save_flags(fiq_flag);
+		local_fiq_disable();
 
+		hd_write_reg(P_HDMITX_ADDR_PORT + offset, addr);
+		hd_write_reg(P_HDMITX_ADDR_PORT + offset, addr);
+		hd_write_reg(P_HDMITX_DATA_PORT + offset, data);
+		raw_local_irq_restore(fiq_flag);
+		spin_unlock_irqrestore(&reg_lock, flags);
+	}
 	pr_debug("%s wr[0x%x] 0x%x\n", offset ? "DWC" : "TOP",
-			addr, data);
+		addr, data);
 }
 
 void hdmitx_wr_reg_g12a(unsigned int addr, unsigned int data)
@@ -488,10 +563,19 @@ void hdmitx_wr_reg(unsigned int addr, unsigned int data)
 {
 	struct hdmitx_dev *hdev = get_hdmitx_device();
 
-	if (hdev->chip_type >= MESON_CPU_ID_G12A)
+	switch(hdev->chip_type) {
+	case MESON_CPU_ID_GXL:
+	case MESON_CPU_ID_GXM:
+		hdmitx_wr_reg_gxl_gxm(addr, data);
+		break;
+	case MESON_CPU_ID_G12A:
+	case MESON_CPU_ID_G12B:
 		hdmitx_wr_reg_g12a(addr, data);
-	else
+		break;
+	default:
 		hdmitx_wr_reg_normal(addr, data);
+		break;
+	}
 }
 EXPORT_SYMBOL(hdmitx_wr_reg);
 

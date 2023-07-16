@@ -53,7 +53,7 @@
 /* TXLX */
 /* unified_register.h by wujun */
 #define HHI_AUDPLL_CLK_OUT_CNTL (0x8c << 2)
-
+#define HHI_VDAC_CNTL0_TXLX		(0xBD * 4)
 #define PREG_PAD_GPIO0_EN_N		(0x0c * 4)
 #define PREG_PAD_GPIO0_O		(0x0d * 4)
 #define PREG_PAD_GPIO0_I		(0x0e * 4)
@@ -1062,7 +1062,9 @@
 
 /* tl1 HIU PHY register */
 #define HHI_HDMIRX_PHY_MISC_CNTL0		(0xd7<<2)/*0x040*/
+#define MISCI_COMMON_RST				_BIT(10)
 #define HHI_HDMIRX_PHY_MISC_CNTL1		(0xd8<<2)/*0x041*/
+#define MISCI_MANUAL_MODE				_BIT(22)
 #define HHI_HDMIRX_PHY_MISC_CNTL2		(0xe0<<2)/*0x042*/
 #define HHI_HDMIRX_PHY_MISC_CNTL3		(0xe1<<2)/*0x043*/
 #define HHI_HDMIRX_PHY_DCHA_CNTL0		(0xe2<<2)/*0x045*/
@@ -1071,7 +1073,7 @@
 #define HHI_HDMIRX_PHY_DCHD_CNTL0		(0xe5<<2)/*0x048*/
 #define HHI_HDMIRX_PHY_DCHD_CNTL1		(0xe6<<2)/*0x049*/
 #define HHI_HDMIRX_PHY_DCHD_CNTL2		(0xe7<<2)/*0x04A*/
-/*#define HHI_HDMIRX_PHY_MISC_STAT		(0xee<<2)*//*0x044*/
+#define HHI_HDMIRX_PHY_MISC_STAT		(0xee << 2)//0x044
 #define HHI_HDMIRX_PHY_DCHD_STAT		(0xef<<2)/*0x04B*/
 
 #define TMDS_CLK_MIN			(24000UL)
@@ -1116,9 +1118,14 @@ extern int pll_rst_max;
 extern int cdr_lock_level;
 extern int top_intr_maskn_value;
 extern int hbr_force_8ch;
+extern bool term_cal_en;
 extern int clock_lock_th;
 extern int scdc_force_en;
 extern bool hdcp_hpd_ctrl_en;
+extern int eq_dbg_lvl;
+extern int phy_term_lel;
+extern bool phy_tdr_en;
+
 extern void rx_get_best_eq_setting(void);
 extern void wr_reg_hhi(unsigned int offset, unsigned int val);
 extern void wr_reg_hhi_bits(unsigned int offset, unsigned int mask,
@@ -1213,7 +1220,7 @@ extern unsigned int rx_hdcp22_rd_reg_bits(unsigned int addr, unsigned int mask);
 extern int rx_get_aud_pll_err_sts(void);
 extern void rx_force_hpd_cfg(uint8_t hpd_level);
 extern int rx_set_port_hpd(uint8_t port_id, bool val);
-extern void rx_set_cur_hpd(uint8_t val);
+void rx_set_cur_hpd(u8 val, u8 func);
 extern unsigned int rx_get_hdmi5v_sts(void);
 extern unsigned int rx_get_hpd_sts(void);
 
@@ -1221,11 +1228,11 @@ extern void cec_hw_reset(unsigned int cec_sel);
 extern void rx_force_hpd_cfg(uint8_t hpd_level);
 extern void rx_force_rxsense_cfg(uint8_t level);
 extern void rx_force_hpd_rxsense_cfg(uint8_t level);
-extern void rx_audio_bandgap_rst(void);
-extern void rx_audio_bandgap_rst(void);
+void rx_audio_bandgap_rst(void);
+void rx_audio_bandgap_en(void);
+void rx_aml_eq_debug(int eq_lvl);
 extern void rx_phy_rxsense_pulse(unsigned int t1, unsigned int t2, bool en);
 extern void rx_phy_power_on(unsigned int onoff);
-
 
 enum measure_clk_top_e {
 	TOP_HDMI_TMDSCLK = 0,
@@ -1305,6 +1312,9 @@ extern void rx_run_eq(void);
 extern bool rx_eq_done(void);
 extern bool is_tmds_valid(void);
 extern void hdmirx_top_irq_en(bool flag);
+void rx_phy_rt_cal(void);
+bool is_ft_trim_done(void);
+void aml_phy_get_trim_val(void);
 #endif
 
 

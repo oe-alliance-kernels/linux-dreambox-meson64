@@ -31,7 +31,7 @@
 #define FREQ_DEFAULT 4000		/*KHz*/
 #define FIFO_THRESHOLD_DEFAULT 1
 #define ETU_DIVIDER_CLOCK_HZ	24000	/* KHz*/
-#define ETU_CLK_SEL  0
+#define ETU_CLK_SEL  2 /* use smartcard clock for etu divider calculation */
 #define ATR_HOLDOFF_EN 1
 #define ATR_CLK_MUX_DEFAULT 4
 #define ATR_HOLDOFF_TCNT_DEFAULT 255

@@ -45,6 +45,9 @@ struct data_cfg {
 
 	/* channel and mask in new ctrol register */
 	bool ch_ctrl_switch;
+
+	/* enable resample B for loopback*/
+	unsigned int resample_enable;
 };
 
 void tdminlb_set_clk(enum datalb_src lb_src,
@@ -72,4 +75,10 @@ extern void lb_enable(int id, bool enable);
 
 void lb_set_chnum_en(int id, bool en);
 
+enum lb_out_rate {
+	MIC_RATE,
+	LB_RATE,
+};
+
+void lb_set_mode(int id, enum lb_out_rate rate);
 #endif

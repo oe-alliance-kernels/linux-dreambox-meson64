@@ -660,9 +660,8 @@ int get_efusekey_info(struct device_node *np)
 			pr_err("please config keyname item\n");
 			goto err;
 		}
-		size = sizeof(efusekey_infos[index].keyname) - 1;
-		strncpy(efusekey_infos[index].keyname, uname,
-			strlen(uname) > size ? size:strlen(uname));
+		size = sizeof(efusekey_infos[index].keyname);
+		strlcpy(efusekey_infos[index].keyname, uname, size);
 		ret = of_property_read_u32(np_key, "offset",
 			&(efusekey_infos[index].offset));
 		if (ret) {

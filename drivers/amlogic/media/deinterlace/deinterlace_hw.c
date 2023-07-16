@@ -141,6 +141,8 @@ static void ma_di_init(void)
 	/* mtn setting */
 	if (cpu_after_eq(MESON_CPU_MAJOR_ID_G12B)) {
 		DI_Wr_reg_bits(DI_MTN_CTRL, 1, 0, 1);
+		DI_Wr_reg_bits(DI_MTN_CTRL, 1, 30, 1);
+		DI_Wr_reg_bits(DI_MTN_CTRL, 0xf, 24, 4);
 		DI_Wr(DI_MTN_1_CTRL1, 0x202015);
 	} else
 		DI_Wr(DI_MTN_1_CTRL1, 0xa0202015);
@@ -433,7 +435,11 @@ static void pre_hold_block_mode_config(void)
 	if (cpu_after_eq(MESON_CPU_MAJOR_ID_G12A)) {
 		DI_Wr(DI_PRE_HOLD, 0);
 		/* go field after 2 lines */
+		#ifdef OLD_PRE_GL
 		DI_Wr(DI_PRE_GL_CTRL, (0x80000000|line_num_pre_frst));
+		#else
+		di_hpre_gl_sw(false);
+		#endif
 	} else if (is_meson_txlx_cpu()) {
 		/* setup pre process ratio to 66.6%*/
 		DI_Wr(DI_PRE_HOLD, (1 << 31) | (1 << 16) | 3);
@@ -756,9 +762,10 @@ void enable_di_pre_aml(
 	/*
 	 * enable&disable contwr txt
 	 */
-	if (cpu_after_eq(MESON_CPU_MAJOR_ID_G12B))
-		RDMA_WR_BITS(DI_MTN_CTRL, madi_en?5:0, 29, 3);
-	else
+	if (cpu_after_eq(MESON_CPU_MAJOR_ID_G12B)) {
+		RDMA_WR_BITS(DI_MTN_CTRL, madi_en, 29, 1);
+		RDMA_WR_BITS(DI_MTN_CTRL, madi_en, 31, 1);
+	} else
 		RDMA_WR_BITS(DI_MTN_1_CTRL1, madi_en?5:0, 29, 3);
 
 	if (cpu_after_eq(MESON_CPU_MAJOR_ID_G12A)) {
@@ -1553,6 +1560,7 @@ static void set_di_inp_mif(struct DI_MIF_s *mif, int urgent, int hold_line)
 	unsigned int chroma0_rpt_loop_pat;
 	unsigned int vt_ini_phase = 0;
 	unsigned int reset_on_gofield;
+	unsigned int burst_len = 2;
 
 	if (mif->set_separate_en != 0 && mif->src_field_mode == 1) {
 		chro_rpt_lastl_ctrl = 1;
@@ -1635,6 +1643,11 @@ static void set_di_inp_mif(struct DI_MIF_s *mif, int urgent, int hold_line)
 		RDMA_WR_BITS(DI_INP_GEN_REG2, 0, 0, 1);
 	}
 
+	if (mif->canvas_w % 32)
+		burst_len = 0;
+	else if (mif->canvas_w % 64)
+		burst_len = 1;
+	RDMA_WR_BITS(DI_INP_GEN_REG3, burst_len & 0x3, 1, 2);
 	RDMA_WR_BITS(DI_INP_GEN_REG3, mif->bit_mode&0x3, 8, 2);
 	RDMA_WR(DI_INP_CANVAS0, (mif->canvas0_addr2 << 16) |
 				/* cntl_canvas0_addr2 */
@@ -3229,11 +3242,28 @@ void pre_frame_reset_g12(unsigned char madi_en,
 	RDMA_WR_BITS(MCVECWR_CAN_SIZE, 0, 14, 1);
 	RDMA_WR_BITS(MCINFWR_CAN_SIZE, 0, 14, 1);
 
+	#ifdef OLD_PRE_GL
 	reg_val = 0xc3200000 | line_num_pre_frst;
 	RDMA_WR(DI_PRE_GL_CTRL, reg_val);
 	reg_val = 0x83200000 | line_num_pre_frst;
 	RDMA_WR(DI_PRE_GL_CTRL, reg_val);
+	#else
+	di_hpre_gl_sw(true);
+	#endif
 }
+
+/*2019-12-25 by feijun*/
+void di_hpre_gl_sw(bool on)
+{
+	if (!cpu_after_eq(MESON_CPU_MAJOR_ID_G12A))
+		return;
+	if (on)
+		RDMA_WR(DI_PRE_GL_CTRL,
+			0x80200000 | line_num_pre_frst);
+	else
+		RDMA_WR(DI_PRE_GL_CTRL, 0xc0000000);
+}
+
 /*
  * frame + soft reset for the pre modules
  */
@@ -3362,6 +3392,15 @@ void diwr_set_power_control(unsigned char enable)
 		enable?VPU_MEM_POWER_ON:VPU_MEM_POWER_DOWN);
 	switch_vpu_mem_pd_vmod(VPU_DI_POST,
 		enable?VPU_MEM_POWER_ON:VPU_MEM_POWER_DOWN);
+}
+
+void di_hdr2_hist_init(void)
+{
+	if (cpu_after_eq(MESON_CPU_MAJOR_ID_TM2)) {
+		RDMA_WR(DI_HDR2_HIST_CTRL, 0x5510);
+		RDMA_WR(DI_HDR2_HIST_H_START_END, 0x10000);
+		RDMA_WR(DI_HDR2_HIST_V_START_END, 0x0);
+	}
 }
 
 void di_top_gate_control(bool top_en, bool mc_en)
@@ -3840,7 +3879,8 @@ void pulldown_vof_win_config(struct pulldown_detected_s *wins)
 	/* revert the setting of top two lines do weave for */
 	/* interlace video, suggest by vlsi-feijun */
 	DI_VSYNC_WR_MPEG_REG_BITS(DI_BLEND_CTRL,
-		0, 16, 1);
+		(wins->regs[0].win_ve > wins->regs[0].win_vs)
+		? 1 : 0, 16, 1);
 	DI_VSYNC_WR_MPEG_REG_BITS(DI_BLEND_CTRL,
 		/*wins->regs[0].blend_mode*/
 				  0x03, 8, 2);
@@ -3874,6 +3914,7 @@ void di_load_regs(struct di_pq_parm_s *di_pq_ptr)
 	unsigned int table_name = 0, nr_table = 0;
 	bool ctrl_reg_flag = false;
 	struct am_reg_s *regs_p = NULL;
+	bool mov_flg = false;
 
 	if (pq_load_dbg == 1)
 		return;
@@ -3922,7 +3963,9 @@ void di_load_regs(struct di_pq_parm_s *di_pq_ptr)
 		}
 		if (table_name & nr_table)
 			ctrl_reg_flag = set_nr_ctrl_reg_table(addr, value);
-		if (!ctrl_reg_flag)
+		if (table_name & TABLE_NAME_DI)
+			mov_flg = di_patch_mov_db(addr, value);
+		if (!ctrl_reg_flag && !mov_flg)
 			DI_Wr(addr, value);
 		if (pq_load_dbg == 2)
 			pr_info("[%u][0x%x] = [0x%x] %s\n", i, addr,

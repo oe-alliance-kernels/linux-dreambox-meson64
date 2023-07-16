@@ -36,9 +36,6 @@
 #include "../vdin/vdin_ctl.h"
 /***************************Local defines**********************************/
 
-#define TVAFE_CVD2_SHIFT_CNT                6
-/* cnt*10ms,delay for fmt shift counter */
-
 #define TVAFE_CVD2_NONSTD_DGAIN_MAX         0x500
 /* CVD max digital gain for non-std signal */
 #define TVAFE_CVD2_NONSTD_CNT_MAX           0x0A
@@ -111,6 +108,7 @@ static int force_fmt_flag;
 static bool scene_colorful_old;
 static int lock_cnt;
 static bool ntsc50_en;
+bool reinit_scan;
 
 static int cdto_adj_th = TVAFE_CVD2_CDTO_ADJ_TH;
 module_param(cdto_adj_th, int, 0664);
@@ -120,9 +118,9 @@ static int cdto_adj_step = TVAFE_CVD2_CDTO_ADJ_STEP;
 module_param(cdto_adj_step, int, 0664);
 MODULE_PARM_DESC(cdto_adj_step, "cvd2_adj_step");
 
-static int cvd2_shift_cnt = TVAFE_CVD2_SHIFT_CNT;
-module_param(cvd2_shift_cnt, int, 0664);
-MODULE_PARM_DESC(cvd2_shift_cnt, "cvd2_shift_cnt");
+/* cnt*10ms,delay for fmt shift counter */
+static unsigned int cvd2_shift_cnt_atv = 6;
+static unsigned int cvd2_shift_cnt_av = 2;
 
 /*force the fmt for chrome off,for example ntsc pal_i 12*/
 static unsigned int config_force_fmt;
@@ -211,6 +209,29 @@ static unsigned int noise3;
 
 unsigned int vbi_mem_start;
 
+void cvd_set_shift_cnt(enum tvafe_cvd2_shift_cnt_e src, unsigned int val)
+{
+	if (src == TVAFE_CVD2_SHIFT_CNT_ATV)
+		cvd2_shift_cnt_atv = val;
+	else if (src == TVAFE_CVD2_SHIFT_CNT_AV)
+		cvd2_shift_cnt_av = val;
+	else
+		pr_err("[%s]wrong src para.\n", __func__);
+}
+
+unsigned int cvd_get_shift_cnt(enum tvafe_cvd2_shift_cnt_e src)
+{
+	unsigned int shift_cnt = 0;
+
+	if (src == TVAFE_CVD2_SHIFT_CNT_ATV)
+		shift_cnt = cvd2_shift_cnt_atv;
+	else if (src == TVAFE_CVD2_SHIFT_CNT_AV)
+		shift_cnt = cvd2_shift_cnt_av;
+	else
+		pr_err("[%s]wrong src para.\n", __func__);
+
+	return shift_cnt;
+}
 
 void cvd_vbi_mem_set(unsigned int offset, unsigned int size)
 {
@@ -1548,10 +1569,13 @@ static void tvafe_cvd2_search_video_mode(struct tvafe_cvd2_s *cvd2,
 	unsigned int try_format_max;
 
 	if ((cvd2->vd_port == TVIN_PORT_CVBS3) ||
-		(cvd2->vd_port == TVIN_PORT_CVBS0))
+	    (cvd2->vd_port == TVIN_PORT_CVBS0)) {
 		try_format_max = try_fmt_max_atv;
-	else
+		shift_cnt = cvd2_shift_cnt_atv;
+	} else {
 		try_format_max = try_fmt_max_av;
+		shift_cnt = cvd2_shift_cnt_av;
+	}
 
 	/* execute manual mode */
 	if ((cvd2->manual_fmt) && (cvd2->config_fmt != cvd2->manual_fmt) &&
@@ -1836,9 +1860,8 @@ static void tvafe_cvd2_search_video_mode(struct tvafe_cvd2_s *cvd2,
 		try_format_cnt = 0;
 		if (tvafe_cvd2_condition_shift(cvd2)) {
 			if (cvd2->info.non_std_enable)
-				shift_cnt = cvd2_shift_cnt*10;
-			else
-				shift_cnt = cvd2_shift_cnt;
+				shift_cnt *= 10;
+
 			/* if no color burst,*/
 			/*pal flag can not be trusted */
 			if (cvd2->info.fmt_shift_cnt++ > shift_cnt) {
@@ -2059,16 +2082,17 @@ inline bool tvafe_cvd2_no_sig(struct tvafe_cvd2_s *cvd2,
 	tvafe_cvd2_search_video_mode(cvd2, mem);
 
 	/* init if no signal input */
-	if (cvd2->hw.no_sig) {
+	if (cvd2->hw.no_sig || reinit_scan) {
+		reinit_scan = false;
 		ret = true;
 		tvafe_cvd2_reinit(cvd2);
 	} else {
 		ret = false;
 		cvd2->cvd2_init_en = false;
 #ifdef TVAFE_CVD2_AUTO_DE_ENABLE
-		if ((!cvd2->info.scene_colorful) &&
-			((user_param->auto_adj_en & TVAFE_AUTO_DE) ||
-			(user_param->auto_adj_en & TVAFE_AUTO_VS))) {
+		if (((!cvd2->info.scene_colorful) &&
+		     (user_param->auto_adj_en & TVAFE_AUTO_DE)) ||
+		    (user_param->auto_adj_en & TVAFE_AUTO_VS)) {
 			tvafe_cvd2_auto_de(cvd2);
 			tvafe_cvd2_adj_vs(cvd2);
 		} else

@@ -599,17 +599,19 @@ EXPORT_SYMBOL(pts_checkin);
 int get_last_checkin_pts(u8 type)
 {
 	struct pts_table_s *pTable = NULL;
-	u32 last_checkin_pts = 0;
+	u32 last_checkin_pts = 0xffffffff;
 	ulong flags;
 
 	spin_lock_irqsave(&lock, flags);
 
 	if (type == PTS_TYPE_VIDEO) {
 		pTable = &pts_table[PTS_TYPE_VIDEO];
-		last_checkin_pts = pTable->last_checkin_pts;
+		if (pTable->status == PTS_RUNNING)
+			last_checkin_pts = pTable->last_checkin_pts;
 	} else if (type == PTS_TYPE_AUDIO) {
 		pTable = &pts_table[PTS_TYPE_AUDIO];
-		last_checkin_pts = pTable->last_checkin_pts;
+		if (pTable->status == PTS_RUNNING)
+			last_checkin_pts = pTable->last_checkin_pts;
 	} else {
 		spin_unlock_irqrestore(&lock, flags);
 		return -EINVAL;
@@ -627,16 +629,18 @@ EXPORT_SYMBOL(get_last_checkin_pts);
 int get_last_checkout_pts(u8 type)
 {
 	struct pts_table_s *pTable = NULL;
-	u32 last_checkout_pts = 0;
+	u32 last_checkout_pts = 0xffffffff;
 	ulong flags;
 
 	spin_lock_irqsave(&lock, flags);
 	if (type == PTS_TYPE_VIDEO) {
 		pTable = &pts_table[PTS_TYPE_VIDEO];
-		last_checkout_pts = pTable->last_checkout_pts;
+		if (pTable->status == PTS_RUNNING)
+			last_checkout_pts = pTable->last_checkout_pts;
 	} else if (type == PTS_TYPE_AUDIO) {
 		pTable = &pts_table[PTS_TYPE_AUDIO];
-		last_checkout_pts = pTable->last_checkout_pts;
+		if (pTable->status == PTS_RUNNING)
+			last_checkout_pts = pTable->last_checkout_pts;
 	} else {
 		spin_unlock_irqrestore(&lock, flags);
 		return -EINVAL;

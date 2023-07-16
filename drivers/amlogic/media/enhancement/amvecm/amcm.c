@@ -381,9 +381,21 @@ void amcm_enable(void)
 
 void pd_combing_fix_patch(enum pd_comb_fix_lvl_e level)
 {
+	int offset = 0x0;
+
+	/* p212 g12a and so on no related register lead to crash*/
+	/* so skip the function */
+	if (!(is_meson_tl1_cpu() || is_meson_txlx_cpu() ||
+	      is_meson_tm2_cpu() || is_meson_txl_cpu() ||
+	      is_meson_txhd_cpu()))
+		return;
+	/* add register offset */
+	if (is_meson_txlx_cpu() || is_meson_txl_cpu())
+		offset = 0xc00;
 	pr_amcm_dbg("\n[amcm..] pd fix lvl = %d\n", level);
-	WRITE_VPP_REG(sr0_dej_setting[level].addr,
-		(aml_read_vcbus(sr0_dej_setting[level].addr) &
+	WRITE_VPP_REG(
+		sr0_dej_setting[level].addr - offset,
+		(aml_read_vcbus(sr0_dej_setting[level].addr - offset) &
 		(~(sr0_dej_setting[level].mask))) |
 		(sr0_dej_setting[level].val & sr0_dej_setting[level].mask));
 }
@@ -473,27 +485,21 @@ void cm_latch_process(void)
 	do {
 		if (vecm_latch_flag & FLAG_REG_MAP0) {
 			cm_regmap_latch(&amregs0, FLAG_REG_MAP0);
-			break;
 		}
 		if (vecm_latch_flag & FLAG_REG_MAP1) {
 			cm_regmap_latch(&amregs1, FLAG_REG_MAP1);
-			break;
 		}
 		if (vecm_latch_flag & FLAG_REG_MAP2) {
 			cm_regmap_latch(&amregs2, FLAG_REG_MAP2);
-			break;
 		}
 		if (vecm_latch_flag & FLAG_REG_MAP3) {
 			cm_regmap_latch(&amregs3, FLAG_REG_MAP3);
-			break;
 		}
 		if (vecm_latch_flag & FLAG_REG_MAP4) {
 			cm_regmap_latch(&amregs4, FLAG_REG_MAP4);
-			break;
 		}
 		if (vecm_latch_flag & FLAG_REG_MAP5) {
 			cm_regmap_latch(&amregs5, FLAG_REG_MAP5);
-			break;
 		}
 		if ((cm2_patch_flag & 0xff) > 0)
 			cm2_frame_switch_patch();

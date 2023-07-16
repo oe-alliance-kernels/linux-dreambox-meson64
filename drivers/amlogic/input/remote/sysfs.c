@@ -154,6 +154,10 @@ static ssize_t keymap_store(struct device *dev,
 		dev_err(chip->dev, "keymap_store input err\n");
 		return -EINVAL;
 	}
+	if (value && seek_map_tab(chip, value) == NULL) {
+		dev_err(chip->dev, "invalid custom code\n");
+		return -EINVAL;
+	}
 	chip->sys_custom_code = value;
 	return count;
 }

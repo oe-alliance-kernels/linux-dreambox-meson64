@@ -92,6 +92,10 @@ void spdif_get_channel_status_info(
 			} else if (rate_bit == SNDRV_PCM_RATE_44100) {
 				chsts->chstat1_l = 0;
 				chsts->chstat1_r = 0;
+			} else if (IEC958_mode_codec == 7 ||
+				IEC958_mode_codec == 8) {
+				chsts->chstat1_l = 0x900;
+				chsts->chstat1_r = 0x900;
 			} else {
 				chsts->chstat1_l = 0x200;
 				chsts->chstat1_r = 0x200;

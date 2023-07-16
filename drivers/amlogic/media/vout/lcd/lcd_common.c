@@ -31,7 +31,8 @@
 #include <linux/amlogic/media/vout/lcd/lcd_notify.h>
 #include <linux/amlogic/media/vout/lcd/lcd_unifykey.h>
 #include <linux/amlogic/media/vout/vinfo.h>
-
+#include <linux/page-flags.h>
+#include <linux/mm.h>
 #include "lcd_common.h"
 #include "lcd_reg.h"
 
@@ -87,6 +88,58 @@ static char *lcd_mode_table[] = {
 	"tablet",
 	"invalid",
 };
+
+u8 *lcd_vmap(ulong addr, u32 size)
+{
+	u8 *vaddr = NULL;
+	struct page **pages = NULL;
+	u32 i, npages, offset = 0;
+	ulong phys, page_start;
+	/*pgprot_t pgprot = pgprot_noncached(PAGE_KERNEL);*/
+	pgprot_t pgprot = PAGE_KERNEL;
+
+	if (!PageHighMem(phys_to_page(addr)))
+		return phys_to_virt(addr);
+
+	offset = offset_in_page(addr);
+	page_start = addr - offset;
+	npages = DIV_ROUND_UP(size + offset, PAGE_SIZE);
+
+	pages = kmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
+	if (!pages)
+		return NULL;
+	for (i = 0; i < npages; i++) {
+		phys = page_start + i * PAGE_SIZE;
+		pages[i] = pfn_to_page(phys >> PAGE_SHIFT);
+	}
+
+	vaddr = vmap(pages, npages, VM_MAP, pgprot);
+	if (!vaddr) {
+		LCDERR("the phy(%lx) vmaped fail, size: %d\n",
+			page_start, npages << PAGE_SHIFT);
+		kfree(pages);
+		return NULL;
+	}
+	kfree(pages);
+
+	if (lcd_debug_print_flag) {
+		LCDPR("[lcd HIGH-MEM-MAP] %s, pa(%lx) to va(%p), size: %d\n",
+			 __func__, page_start, vaddr, npages << PAGE_SHIFT);
+	}
+
+	return vaddr + offset;
+}
+
+void lcd_unmap_phyaddr(u8 *vaddr)
+{
+	void *addr = (void *)(PAGE_MASK & (ulong)vaddr);
+
+	if (is_vmalloc_or_module_addr(vaddr)) {
+		if (lcd_debug_print_flag)
+			LCDPR("----lcd unmap v: %p\n", addr);
+		vunmap(addr);
+	}
+}
 
 unsigned char lcd_mode_str_to_mode(const char *str)
 {
@@ -408,7 +461,7 @@ int lcd_power_load_from_dts(struct lcd_config_s *pconf,
 	unsigned int para[5];
 	unsigned int val;
 	struct lcd_power_ctrl_s *lcd_power = pconf->lcd_power;
-	int i, j;
+	int i, j, temp;
 	unsigned int index;
 
 	if (lcd_debug_print_flag)
@@ -457,6 +510,10 @@ int lcd_power_load_from_dts(struct lcd_config_s *pconf,
 			case LCD_POWER_TYPE_EXTERN:
 				pconf->extern_index = index;
 				break;
+			case LCD_POWER_TYPE_CLK_SS:
+				temp = pconf->lcd_power->power_on_step[i].value;
+				pconf->lcd_timing.ss_level |= temp << 8;
+			break;
 			default:
 				break;
 			}
@@ -544,7 +601,7 @@ int lcd_power_load_from_dts(struct lcd_config_s *pconf,
 int lcd_power_load_from_unifykey(struct lcd_config_s *pconf,
 		unsigned char *buf, int key_len, int len)
 {
-	int i, j;
+	int i, j, temp;
 	unsigned char *p;
 	unsigned int index;
 	int ret;
@@ -584,6 +641,10 @@ int lcd_power_load_from_unifykey(struct lcd_config_s *pconf,
 			break;
 		case LCD_POWER_TYPE_EXTERN:
 			pconf->extern_index = index;
+			break;
+		case LCD_POWER_TYPE_CLK_SS:
+			temp = pconf->lcd_power->power_on_step[i].value;
+			pconf->lcd_timing.ss_level |= temp << 8;
 			break;
 		default:
 			break;

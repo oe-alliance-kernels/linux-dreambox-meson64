@@ -660,9 +660,6 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 	case FS_IOC_FIEMAP:
 		return ioctl_fiemap(filp, arg);
 
-	case FIGETBSZ:
-		return put_user(inode->i_sb->s_blocksize, argp);
-
 	case FICLONE:
 		return ioctl_file_clone(filp, arg, 0, 0, 0);
 
@@ -671,6 +668,11 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 
 	case FIDEDUPERANGE:
 		return ioctl_file_dedupe_range(filp, argp);
+
+	case FIGETBSZ:
+		if (!S_ISCHR(inode->i_mode))
+			return put_user(inode->i_sb->s_blocksize, argp);
+		/* fall through to allow the usage of ioctl's with cmd 0x02 */
 
 	default:
 		if (S_ISREG(inode->i_mode))
