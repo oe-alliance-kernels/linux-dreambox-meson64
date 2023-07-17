@@ -3077,10 +3077,12 @@ static void init_cec_port_info(struct hdmi_port_info *port,
 			port[e].arc_supported = 1;
 		else
 			port[e].arc_supported = 0;
-		CEC_INFO_L(L_3, "portinfo id:%d arc:%d phy:%x,type:%d\n",
+		port[e].logical_address = cec_dev->cec_info.log_addr;
+		CEC_INFO_L(L_3, "portinfo id:%d arc:%d log:%x,phy:%x,type:%d\n",
 				port[e].port_id, port[e].arc_supported,
+				port[e].logical_address,
 				port[e].physical_address,
-				port[e].type);
+				port[e].type);						
 		e++;
 		if (e >= cec_dev->port_num)
 			break;
@@ -3206,7 +3208,7 @@ static long hdmitx_cec_ioctl(struct file *f,
 			return -EINVAL;
 		}
 		break;
-
+		
 	case CEC_IOC_GET_VENDOR_ID:
 		tmp = cec_dev->v_data.vendor_id;
 		if (copy_to_user(argp, &tmp, _IOC_SIZE(cmd))) {
@@ -3320,7 +3322,7 @@ static long hdmitx_cec_ioctl(struct file *f,
 			return -EINVAL;
 		}
 		break;
-
+		
 	case CEC_IOC_ADD_LOGICAL_ADDR:
 		tmp = arg & 0xf;
 		/*cec_logicaddr_set(tmp);*/
