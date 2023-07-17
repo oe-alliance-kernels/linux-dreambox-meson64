@@ -448,16 +448,7 @@ static long ge2d_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 	memset(&ge2d_config_ex_ion, 0, sizeof(struct config_para_ex_ion_s));
 	memset(&ge2d_req_buf, 0, sizeof(struct ge2d_dmabuf_req_s));
 	memset(&ge2d_exp_buf, 0, sizeof(struct ge2d_dmabuf_exp_s));
-#ifdef CONFIG_AMLOGIC_MEDIA_GE2D_MORE_SECURITY
-	switch (cmd) {
-	case GE2D_CONFIG:
-	case GE2D_CONFIG32:
-	case GE2D_CONFIG_EX:
-	case GE2D_CONFIG_EX32:
-		pr_err("ioctl not support.\n");
-		return -EINVAL;
-	}
-#endif
+
 	switch (cmd) {
 	case GE2D_GET_CAP:
 		cap_mask = ge2d_meson_dev.src2_alp & 0x1;
