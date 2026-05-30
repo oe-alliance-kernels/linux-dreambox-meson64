@@ -1054,6 +1054,7 @@
 		pinctrl-0 = <&spdifout>;
 		pinctrl-1 = <&spdifout_a_mute>;
 		status = "okay";
+		amlogic,boot-silence;
 	};
 	aml_spdif_b: spdif_b {
 		compatible = "amlogic, g12a-snd-spdif-b";

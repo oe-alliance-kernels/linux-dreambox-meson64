@@ -25,6 +25,7 @@
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
 #include <linux/clk.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/extcon.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -308,15 +309,12 @@ static int aml_spdif_platform_suspend(
 static int aml_spdif_platform_resume(struct platform_device *pdev)
 {
 	struct aml_spdif *p_spdif = dev_get_drvdata(&pdev->dev);
-	struct pinctrl_state *state = NULL;
+
 	int stream = SNDRV_PCM_STREAM_PLAYBACK;
 
-	if (!IS_ERR_OR_NULL(p_spdif->pin_ctl)) {
-		state = pinctrl_lookup_state
-		(p_spdif->pin_ctl, "spdif_pins");
-		if (!IS_ERR_OR_NULL(state))
-			pinctrl_select_state(p_spdif->pin_ctl, state);
-	}
+	if (!IS_ERR_OR_NULL(p_spdif->pin_ctl))
+		pinctrl_pm_select_default_state(&pdev->dev);
+
 	aml_spdif_enable(p_spdif->actrl,
 			stream, p_spdif->id, true);
 	pr_info("%s is unmute\n", __func__);
@@ -1135,10 +1133,10 @@ static int aml_dai_spdif_startup(
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 
-		if (0/*p_spdif->clk_cont*/) {
-			pr_info("spdif_%s keep clk continuous\n",
-				(p_spdif->id == 0) ? "a":"b");
-			return 0;
+		if (p_spdif->clk_cont) {
+		    pr_info("spdif_%s keep clk continuous\n",
+		            (p_spdif->id == 0) ? "a":"b");
+		    return 0;
 		}
 		/* enable clock gate */
 		ret = clk_prepare_enable(p_spdif->gate_spdifout);
@@ -1698,7 +1696,7 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 		/* for spdif output zero data, clk be continuous,
 		 * and keep silence when no valid data
 		 */
-		aml_spdif->clk_cont = 1;
+		aml_spdif->clk_cont = 0;
 
 		aml_spdif->chipinfo = p_spdif_chipinfo;
 
@@ -1723,6 +1721,39 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 	ret = aml_spdif_parse_of(pdev);
 	if (ret)
 		return -EINVAL;
+
+	/* Ensure SPDIF pinmux is active at boot (Dream DTS uses "default") */
+	aml_spdif->pin_ctl = devm_pinctrl_get(dev);
+	if (!IS_ERR_OR_NULL(aml_spdif->pin_ctl))
+		pinctrl_pm_select_default_state(dev);
+
+	/*
+	 * Optional: keep optical output active after boot (continuous carrier).
+	 * Enabled via DT property: "amlogic,boot-silence";
+	 */
+	if (of_property_read_bool(node, "amlogic,boot-silence")) {
+		aml_spdif->clk_cont = 1;
+
+		/* same clock sequence as aml_dai_spdif_startup() */
+		ret = clk_prepare_enable(aml_spdif->gate_spdifout);
+		if (ret)
+			dev_err(dev, "spdif: enable gate_spdifout failed: %d\n", ret);
+
+		ret = clk_set_parent(aml_spdif->clk_spdifout, aml_spdif->sysclk);
+		if (ret)
+			dev_err(dev, "spdif: set clk_spdifout parent failed: %d\n", ret);
+
+		ret = clk_prepare_enable(aml_spdif->sysclk);
+		if (ret)
+			dev_err(dev, "spdif: enable sysclk failed: %d\n", ret);
+
+		ret = clk_prepare_enable(aml_spdif->clk_spdifout);
+		if (ret)
+			dev_err(dev, "spdif: enable clk_spdifout failed: %d\n", ret);
+
+		/* start zero-data output so the receiver can lock immediately */
+		spdifout_play_with_zerodata(aml_spdif->id, spdif_reenable);
+	}
 
 	/* spdif out play zero data at uboot stage */
 	/*
