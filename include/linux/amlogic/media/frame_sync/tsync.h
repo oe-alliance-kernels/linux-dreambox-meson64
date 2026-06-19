@@ -24,6 +24,25 @@
 #define AV_DISCONTINUE_THREDHOLD_MIN    (TIME_UNIT90K * 3)
 #define AV_DISCONTINUE_THREDHOLD_MAX    (TIME_UNIT90K * 60)
 
+
+/* TSYNC chrdev ioctl interface (matches LineageOS/CoreELEC aml-4.9). */
+#define TSYNC_IOC_MAGIC 'T'
+#define TSYNC_IOC_SET_TUNNEL_MODE          _IOW(TSYNC_IOC_MAGIC, 0x00, int)
+#define TSYNC_IOC_SET_VIDEO_PEEK           _IOW(TSYNC_IOC_MAGIC, 0x01, int)
+#define TSYNC_IOC_SET_FIRST_CHECKIN_APTS   _IOW(TSYNC_IOC_MAGIC, 0x02, u32)
+#define TSYNC_IOC_SET_LAST_CHECKIN_APTS    _IOW(TSYNC_IOC_MAGIC, 0x03, u32)
+#define TSYNC_IOC_SET_DEMUX_INFO           _IOW(TSYNC_IOC_MAGIC, 0x06, struct dmx_info)
+#define TSYNC_IOC_STOP_TSYNC_PCR           _IO((TSYNC_IOC_MAGIC), 0x08)
+#define TSYNC_IOC_GET_FIRST_FRAME_TOGGLED  _IOR(TSYNC_IOC_MAGIC, 0x20, int)
+
+struct dmx_info {
+	int demux_device_id;
+	int index;
+	int vpid;
+	int apid;
+	int pcrpid;
+};
+
 enum avevent_e {
 	VIDEO_START,
 	VIDEO_PAUSE,

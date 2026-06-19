@@ -1281,6 +1281,12 @@ EXPORT_SYMBOL(tsync_get_vpts_adjust);
 
 int tsync_pcr_start(void)
 {
+	/* Idempotency guard: tsync_pcr_start does init_timer + add_timer
+	 * unconditionally. If called twice without an intervening
+	 * tsync_pcr_stop, add_timer corrupts the kernel timer wheel. */
+	if (tsync_pcr_started)
+		return 0;
+
 	timestamp_pcrscr_enable(0);
 	timestamp_pcrscr_set(0);
 

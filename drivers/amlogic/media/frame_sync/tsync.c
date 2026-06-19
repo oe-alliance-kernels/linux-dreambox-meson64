@@ -31,10 +31,28 @@
 #include <linux/amlogic/media/frame_sync/tsync_pcr.h>
 #include <linux/amlogic/media/registers/register.h>
 #include <linux/amlogic/media/codec_mm/configs.h>
+#include <linux/amlogic/major.h>
+#include <linux/err.h>
+#include <linux/uaccess.h>
+#include <linux/cdev.h>
 
 /* #if MESON_CPU_TYPE >= MESON_CPU_TYPE_MESON6 */
 /* TODO: for stream buffer register bit define only */
 /* #endif */
+
+/* /dev/tsync chrdev support (ioctl interface for SET_DEMUX_INFO / STOP_TSYNC_PCR /
+ * SET_TUNNEL_MODE etc. - matches LineageOS/CoreELEC aml-4.9). */
+#define TSYNC_DEVICE_NAME   "tsync"
+
+static struct device *tsync_dev;
+static bool new_arch;
+static u32 checkin_apts_from_audiohal;
+static u32 first_demux_pcrscr;
+u8  demux_pcrscr_valid;
+u8  audio_pid_valid;
+u8  video_pid_valid;
+u32 demux_pcrscr;
+struct dmx_info demux_info;
 
 #if !defined(CONFIG_PREEMPT)
 #define CONFIG_AM_TIMESYNC_LOG
@@ -2313,15 +2331,152 @@ static struct mconfig tsync_configs[] = {
 };
 
 
+int tsync_check_pid_valid_for_newarch(struct dmx_info demux_info)
+{
+	if (!new_arch)
+		return 0;
+	if (demux_info.vpid != 0x1FFF)
+		video_pid_valid = 1;
+	else
+		video_pid_valid = 0;
+
+	if (demux_info.apid != 0x1FFF)
+		audio_pid_valid = 1;
+	else
+		audio_pid_valid = 0;
+
+	if (demux_info.pcrpid != 0x1FFF)
+		demux_pcrscr_valid = 1;
+	else
+		demux_pcrscr_valid = 0;
+	if (!video_pid_valid)
+		pr_info("tsync exception video pid is valid.");
+	if (!audio_pid_valid)
+		pr_info("tsync exception audio pid is valid.");
+	if (!demux_pcrscr_valid)
+		pr_info("tsync exception demux pcr pid is valid.");
+	return 1;
+}
+
+static int tsync_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static int tsync_release(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static long tsync_ioctl(struct file *file, unsigned int cmd, ulong arg)
+{
+	long ret = 0;
+	unsigned int tmppts = 0;
+	void __user *argp = (void __user *)arg;
+
+	switch (cmd) {
+	case TSYNC_IOC_SET_VIDEO_PEEK:
+		break;
+
+	case TSYNC_IOC_GET_FIRST_FRAME_TOGGLED:
+		put_user(0, (u32 __user *)argp);
+		break;
+
+	case TSYNC_IOC_SET_TUNNEL_MODE:
+		break;
+
+	case TSYNC_IOC_SET_FIRST_CHECKIN_APTS:
+		if (new_arch && get_user(tmppts, (unsigned int *)arg) >= 0)
+			timestamp_checkin_firstapts_set(tmppts);
+		break;
+
+	case TSYNC_IOC_SET_LAST_CHECKIN_APTS:
+		if (new_arch)
+			get_user(checkin_apts_from_audiohal,
+				 (unsigned int *)arg);
+		break;
+
+	case TSYNC_IOC_SET_DEMUX_INFO:
+		if (new_arch &&
+		    (copy_from_user((void *)&demux_info, (void *)arg,
+				    sizeof(demux_info)) == 0)) {
+			tsync_check_pid_valid_for_newarch(demux_info);
+			ret = pts_start(PTS_TYPE_VIDEO);
+			if (ret < 0)
+				pr_err("pts_start failed\n");
+
+			tsync_pcr_start();
+		}
+		break;
+
+	case TSYNC_IOC_STOP_TSYNC_PCR:
+		if (new_arch) {
+			ret = pts_stop(PTS_TYPE_VIDEO);
+			if (ret < 0)
+				pr_err("pts_stop failed=%ld\n", ret);
+
+			tsync_pcr_stop();
+		}
+		break;
+	default:
+		pr_info("invalid cmd:%d\n", cmd);
+		break;
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long tsync_compat_ioctl(struct file *file, unsigned int cmd, ulong arg)
+{
+	switch (cmd) {
+	case TSYNC_IOC_SET_TUNNEL_MODE:
+	case TSYNC_IOC_SET_VIDEO_PEEK:
+	case TSYNC_IOC_GET_FIRST_FRAME_TOGGLED:
+	case TSYNC_IOC_SET_FIRST_CHECKIN_APTS:
+	case TSYNC_IOC_SET_LAST_CHECKIN_APTS:
+	case TSYNC_IOC_SET_DEMUX_INFO:
+	case TSYNC_IOC_STOP_TSYNC_PCR:
+		return tsync_ioctl(file, cmd, arg);
+	default:
+		return -EINVAL;
+	}
+}
+#endif
+
+static const struct file_operations tsync_fops = {
+	.owner = THIS_MODULE,
+	.open = tsync_open,
+	.release = tsync_release,
+	.unlocked_ioctl = tsync_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = tsync_compat_ioctl,
+#endif
+};
+
 static int __init tsync_module_init(void)
 {
 	int r;
+	int chip;
 
 	r = class_register(&tsync_class);
 
 	if (r) {
 		amlog_level(LOG_LEVEL_ERROR, "tsync class create fail.\n");
 		return r;
+	}
+
+	/* create /dev/tsync chrdev */
+	r = register_chrdev(TSYNC_MAJOR, "tsync", &tsync_fops);
+	if (r < 0) {
+		pr_info("Can't register major for tsync\n");
+		goto err2;
+	}
+	tsync_dev = device_create(&tsync_class, NULL,
+			MKDEV(TSYNC_MAJOR, 0), NULL, TSYNC_DEVICE_NAME);
+	if (IS_ERR(tsync_dev)) {
+		amlog_level(LOG_LEVEL_ERROR, "Can't create tsync device\n");
+		goto err1;
 	}
 
 	/* init audio pts to -1, others to 0 */
@@ -2344,13 +2499,41 @@ static int __init tsync_module_init(void)
 
 	add_timer(&tsync_state_switch_timer);
 	REG_PATH_CONFIGS("media.tsync", tsync_configs);
+
+	/* chrdev ioctl state init */
+	first_demux_pcrscr = 0;
+	demux_pcrscr = 0;
+	audio_pid_valid = 0;
+	video_pid_valid = 0;
+	demux_pcrscr_valid = 0;
+
+	/* Enable new_arch path on chips where ioctl-driven sync setup is wanted.
+	 * For dreamone/dreamtwo (S922X = G12B) we enable new_arch so that
+	 * SET_DEMUX_INFO / STOP_TSYNC_PCR actually call tsync_pcr_start() /
+	 * tsync_pcr_stop(). DreamOS does the same on these chips. */
+	chip = get_cpu_type();
+	if (chip == MESON_CPU_MAJOR_ID_G12A ||
+	    chip == MESON_CPU_MAJOR_ID_G12B)
+		new_arch = true;
+	else
+		new_arch = false;
+
+	pr_info("tsync: new_arch=%d chip=0x%x\n", new_arch, chip);
+
 	return 0;
+
+err1:
+	unregister_chrdev(TSYNC_MAJOR, "tsync");
+err2:
+	class_unregister(&tsync_class);
+	return r;
 }
 
 static void __exit tsync_module_exit(void)
 {
-		del_timer_sync(&tsync_pcr_recover_timer);
-
+	del_timer_sync(&tsync_pcr_recover_timer);
+	device_destroy(&tsync_class, MKDEV(TSYNC_MAJOR, 0));
+	unregister_chrdev(TSYNC_MAJOR, "tsync");
 	class_unregister(&tsync_class);
 }
 
