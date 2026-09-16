@@ -97,6 +97,10 @@ struct cfg80211_registered_device {
 
 	struct work_struct sched_scan_stop_wk;
 
+	/* netlink port owning the connection of conn_owner_wdev (0 means none) */
+	u32 conn_owner_nlportid;
+	struct wireless_dev *conn_owner_wdev;
+
 	/* must be last because of the way we do wiphy_priv(),
 	 * and it should at least be aligned to NETDEV_ALIGN */
 	struct wiphy wiphy __aligned(NETDEV_ALIGN);
