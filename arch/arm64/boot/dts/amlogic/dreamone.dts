@@ -1536,5 +1536,26 @@
 	cs-gpios = <&gpio GPIOH_6 0>;
 };
 
+/* hw trim efuse is empty, enable tsensor with uncalibrated defaults */
+&p_tsensor {
+	amlogic,fallback-trim-info = <0x84000000>;
+};
+
+&d_tsensor {
+	amlogic,fallback-trim-info = <0x84000000>;
+};
+
+/* cpufreq cooling has fewer states than the g12b reference, use THERMAL_NO_LIMIT */
+&soc_thermal {
+	cooling-maps {
+		cpufreq_cooling_map0 {
+			cooling-device = <&cpufreq_cool0 0 0xffffffff>;
+		};
+		cpufreq_cooling_map1 {
+			cooling-device = <&cpufreq_cool1 0 0xffffffff>;
+		};
+	};
+};
+
 #include "dreambox-partitions.dtsi"
 #include "dreambox-rc.dtsi"
