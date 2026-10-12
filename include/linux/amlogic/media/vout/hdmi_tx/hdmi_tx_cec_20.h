@@ -123,6 +123,7 @@ struct hdmi_port_info {
 	int cec_supported;
 	int arc_supported;
 	u16 physical_address;
+	unsigned char logical_address;
 };
 
 enum cec_dev_type_addr {

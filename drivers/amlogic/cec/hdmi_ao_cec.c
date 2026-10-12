@@ -3276,8 +3276,10 @@ static void init_cec_port_info(struct hdmi_port_info *port,
 			port[e].arc_supported = 1;
 		else
 			port[e].arc_supported = 0;
-		CEC_INFO_L(L_3, "portinfo id:%d arc:%d phy:%x,type:%d\n",
+		port[e].logical_address = cec_dev->cec_info.log_addr;
+		CEC_INFO_L(L_3, "portinfo id:%d arc:%d log:%x,phy:%x,type:%d\n",
 				port[e].port_id, port[e].arc_supported,
+				port[e].logical_address,
 				port[e].physical_address,
 				port[e].type);
 		e++;
