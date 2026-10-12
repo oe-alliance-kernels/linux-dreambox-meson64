@@ -1116,6 +1116,91 @@ static inline struct vframe_s *pip_vf_get(void)
 
 }
 
+/*
+ * The PiP layer has no tsync: pace it by the frame PTS against a clock that
+ * starts with the first frame. Decoders hand frames over in bursts, so the
+ * clock lags the first frame and moves on late frames instead of dropping
+ * them; it restarts on PTS jumps. Frames without PTS are shown one per vsync.
+ * A PiP of the main stream follows the main clock instead, as tsync does. The
+ * decoder may start the PiP PTS at 0; the feeder reports the stream PTS of
+ * that first frame in pip_pts_stream_base.
+ */
+static bool pip_pts_pacing = true;
+module_param(pip_pts_pacing, bool, 0644);
+MODULE_PARM_DESC(pip_pts_pacing, "pace the PiP layer by frame PTS");
+
+#define PIP_PTS_RESYNC (90000 * 2)
+#define PIP_PTS_DELAY 9000
+static u32 pip_pts_base;
+static s64 pip_time_base;
+static bool pip_clock_valid, pip_last_valid;
+static u32 pip_last_pts, pip_last_dur;
+static unsigned int pip_diag;
+module_param(pip_diag, uint, 0664);
+static unsigned int pip_pts_stream_base;
+module_param(pip_pts_stream_base, uint, 0664);
+MODULE_PARM_DESC(pip_pts_stream_base, "stream PTS of the first PiP frame");
+static int pip_sync_offset;
+module_param(pip_sync_offset, int, 0664);
+MODULE_PARM_DESC(pip_sync_offset,
+	"show a PiP of the main stream earlier by this many 90 kHz ticks");
+
+static bool pip_frame_due(struct vframe_s *vf, bool slip)
+{
+	s64 now, ahead;
+	s32 lead;
+	u32 pts;
+	bool due;
+
+	if (!vf)
+		return false;
+	if (!pip_pts_pacing)
+		return true;
+	now = div_s64(ktime_to_us(ktime_get()) * 9, 100);
+	pts = vf->pts;
+	if (!pts) {
+		/* fields and frames without PTS follow the previous one */
+		if (!pip_last_valid)
+			return slip;
+		pts = pip_last_pts + pip_last_dur;
+	}
+	lead = (s32)(pts - timestamp_pcrscr_get());
+	if (pip_pts_stream_base &&
+	    (lead >= PIP_PTS_RESYNC || lead <= -PIP_PTS_RESYNC))
+		lead = (s32)(pts + pip_pts_stream_base -
+			     timestamp_pcrscr_get());
+	if (timestamp_pcrscr_enable_state() &&
+	    lead < PIP_PTS_RESYNC && lead > -PIP_PTS_RESYNC) {
+		/* same time base as the main picture */
+		ahead = lead - pip_sync_offset;
+		pip_clock_valid = false;
+	} else {
+		ahead = (s32)(pts - pip_pts_base) - (now - pip_time_base);
+		if (!pip_clock_valid ||
+		    ahead > PIP_PTS_RESYNC || ahead < -PIP_PTS_RESYNC) {
+			pip_pts_base = pts;
+			pip_time_base = now + PIP_PTS_DELAY;
+			pip_clock_valid = true;
+			ahead = PIP_PTS_DELAY;
+		} else if (slip && ahead < -900) {
+			pip_time_base += 900 - ahead;
+			ahead = 900;
+		}
+	}
+	/* due within half a 50 Hz period */
+	due = ahead <= 900;
+	if (pip_diag)
+		pr_info("pipdiag pts=%u vpts=%u dur=%u type=0x%x ahead=%lld due=%d slip=%d\n",
+			pts, vf->pts, vf->duration, vf->type, ahead, due, slip);
+	if (due) {
+		pip_last_valid = true;
+		pip_last_pts = pts;
+		/* vframe duration is in 1/96000 s */
+		pip_last_dur = vf->duration ? vf->duration * 15 / 16 : 1800;
+	}
+	return due;
+}
+
 #if 0
 static int pip_vf_get_states(struct vframe_states *states)
 {
@@ -5064,6 +5149,8 @@ SET_FILTER:
 	}
 
 	vf = pip_vf_peek();
+	if (!pip_loop && !pip_frame_due(vf, true))
+		vf = NULL;
 	videopip_get_vf_cnt = 0;
 #ifdef CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION
 	/* check video frame before VECM process */
@@ -5123,6 +5210,9 @@ SET_FILTER:
 				if (vd1_path_id == VFM_PATH_PIP)
 					dv_new_vf = dvel_toggle_frame(vf, true);
 #endif
+				if (!pip_loop &&
+				    !pip_frame_due(pip_vf_peek(), false))
+					break;
 			}
 		} else {
 			vf = pip_vf_get();
@@ -6049,6 +6139,11 @@ static void video_vf_unreg_provider(void)
 	cur_rdma_buf = NULL;
 #endif
 	if (cur_dispbuf) {
+		/* layers still showing the frame move to the copy */
+		if (vd_layer[0].dispbuf == cur_dispbuf)
+			vd_layer[0].dispbuf = &vf_local;
+		if (vd_layer[1].dispbuf == cur_dispbuf)
+			vd_layer[1].dispbuf = &vf_local;
 		vf_local = *cur_dispbuf;
 		cur_dispbuf = &vf_local;
 		cur_dispbuf->video_angle = 0;
@@ -6422,6 +6517,8 @@ static void pip_vf_unreg_provider(void)
 #endif
 
 	atomic_inc(&video_unreg_flag);
+	pip_clock_valid = false;
+	pip_last_valid = false;
 	while (atomic_read(&video_inirq_flag) > 0)
 		schedule();
 	spin_lock_irqsave(&lock, flags);
@@ -6442,6 +6539,11 @@ static void pip_vf_unreg_provider(void)
 	pip_rdma_buf = NULL;
 #endif
 	if (cur_pipbuf) {
+		/* layers still showing the frame move to the copy */
+		if (vd_layer[0].dispbuf == cur_pipbuf)
+			vd_layer[0].dispbuf = &local_pip;
+		if (vd_layer[1].dispbuf == cur_pipbuf)
+			vd_layer[1].dispbuf = &local_pip;
 		local_pip = *cur_pipbuf;
 		cur_pipbuf = &local_pip;
 		cur_pipbuf->video_angle = 0;
@@ -6473,10 +6575,12 @@ static void pip_vf_unreg_provider(void)
 		try_free_keep_videopip(1);
 	}
 
-	if (cur_pipbuf && enabled)
-		keeped = vf_keep_pip_current_locked(cur_pipbuf, NULL);
-	else if (cur_pipbuf)
-		keeped = 0;
+	/*
+	 * The PiP layer never keeps its last frame: the blackout policy is
+	 * shared with the main decoder, which may switch it to keep while the
+	 * PiP closes, and the kept frame outlived its decoder.
+	 */
+	keeped = 0;
 
 	pr_info("pip_vf_unreg_provider: vd1 used: %s, vd2 used: %s, keep_ret:%d, black_out:%d, cur_pipbuf:%p\n",
 		layer1_used ? "true" : "false",

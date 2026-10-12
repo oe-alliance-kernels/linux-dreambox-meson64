@@ -6507,8 +6507,9 @@ int video_early_init(struct amvideo_device_data_s *p_amvideo)
 		pre_vscaler_ntap_set[i] = 0xff;
 	}
 
-	/* only enable vd1 as default */
+	/* vd1 and the pip layer vd2 on as default */
 	vd_layer[0].global_output = 1;
+	vd_layer[1].global_output = 1;
 	vd_layer[0].misc_reg_offt = 0 + cur_dev->vpp_off;
 	vd_layer[1].misc_reg_offt = 0 + cur_dev->vpp_off;
 	if (is_meson_sc2_cpu()) {
