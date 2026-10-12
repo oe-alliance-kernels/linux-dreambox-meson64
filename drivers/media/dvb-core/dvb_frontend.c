@@ -39,6 +39,9 @@
 #include <linux/list.h>
 #include <linux/freezer.h>
 #include <linux/jiffies.h>
+#ifndef __GENKSYMS__
+#include <linux/compat.h>
+#endif
 #include <linux/kthread.h>
 #include <linux/ktime.h>
 #include <asm/processor.h>
@@ -2107,7 +2110,8 @@ static int dvb_frontend_ioctl_properties(struct file *file,
 		}
 	}
 #ifdef CONFIG_COMPAT
-	tvps->props = compat_ptr((unsigned long)tvps->props);
+	if (in_compat_syscall())
+		tvps->props = compat_ptr((unsigned long)tvps->props);
 #endif
 
 	if ((cmd == FE_SET_PROPERTY_32) || (cmd == FE_SET_PROPERTY_64)) {

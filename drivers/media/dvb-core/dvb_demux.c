@@ -515,9 +515,16 @@ static inline void _dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf,
 {
 	int p = 0, i, j;
 	const u8 *q;
-	unsigned long flags;
+	unsigned long flags = 0;
+	struct dmx_demux *dmx = &demux->dmx;
+	/* dvr input runs in process context, the decoder feed may sleep */
+	bool memory_fe = dmx->frontend &&
+			 dmx->frontend->source == DMX_MEMORY_FE;
 
-	spin_lock_irqsave(&demux->lock, flags);
+	if (memory_fe)
+		spin_lock(&demux->lock);
+	else
+		spin_lock_irqsave(&demux->lock, flags);
 
 	if (demux->tsbufp) { /* tsbuf[0] is now 0x47. */
 		i = demux->tsbufp;
@@ -561,7 +568,10 @@ static inline void _dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf,
 	}
 
 bailout:
-	spin_unlock_irqrestore(&demux->lock, flags);
+	if (memory_fe)
+		spin_unlock(&demux->lock);
+	else
+		spin_unlock_irqrestore(&demux->lock, flags);
 }
 
 void dvb_dmx_swfilter(struct dvb_demux *demux, const u8 *buf, size_t count)

@@ -584,6 +584,8 @@ struct dmx_demux {
 
 	/* private: */
 
+	int (*set_source)(struct dmx_demux *demux, const dmx_source_t *src);
+
 	/*
 	 * Only used at av7110, to read some data from firmware.
 	 * As this was never documented, we have no clue about what's
