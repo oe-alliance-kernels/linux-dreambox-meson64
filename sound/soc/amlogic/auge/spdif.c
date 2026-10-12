@@ -1892,6 +1892,18 @@ static int aml_spdif_parse_of(struct platform_device *pdev)
 	return 0;
 }
 
+int aml_spdif_get_pts(u64 *pts)
+{
+	int id;
+
+	for (id = 0; id < ARRAY_SIZE(spdif_priv); id++)
+		if (spdif_priv[id] &&
+		    !aml_avsync_get_pts(&spdif_priv[id]->avsync, pts))
+			return 0;
+
+	return -ENODATA;
+}
+
 /* gate timer: the first frame is due */
 static void aml_spdif_avsync_start(void *priv)
 {

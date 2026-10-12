@@ -42,7 +42,7 @@ struct aml_avsync {
 	s64 last_pts;
 	bool mapped;
 	snd_pcm_uframes_t map_frame;
-	u32 map_pts;
+	u64 map_pts;
 	unsigned int rate;
 	/* drop granularity in frames, a whole IEC 61937 burst for raw data;
 	 * the frames between two mapped writes, seen twice, give the burst
@@ -94,9 +94,19 @@ int aml_avsync_copy(struct aml_avsync *s, struct snd_pcm_substream *substream,
 		    snd_pcm_uframes_t count);
 void aml_avsync_set_pts(struct aml_avsync *s, s64 pts);
 void aml_avsync_set_sysclock(struct aml_avsync *s, bool on);
+void aml_avsync_hold_clock(bool hold);
 void aml_avsync_get_status(struct aml_avsync *s, long *val, int n);
 snd_pcm_uframes_t aml_avsync_pointer(struct aml_avsync *s,
 				     struct snd_pcm_runtime *runtime,
 				     snd_pcm_uframes_t phys);
+int aml_avsync_get_pts(struct aml_avsync *s, u64 *pts);
+bool aml_avsync_stale(u32 pts);
+
+/* PTS of the frame a running S/PDIF output plays */
+int aml_spdif_get_pts(u64 *pts);
+
+/* lipsync delay of the user in 90 kHz, positive plays the audio later */
+extern int aml_avsync_delay_pcm;
+extern int aml_avsync_delay_raw;
 
 #endif

@@ -28,6 +28,9 @@ module_param(avsync_offset_ms, int, 0644);
 MODULE_PARM_DESC(avsync_offset_ms, "audio lead over the system clock in ms");
 
 static int avsync_debug;
+
+int aml_avsync_delay_pcm;
+int aml_avsync_delay_raw;
 module_param(avsync_debug, int, 0644);
 MODULE_PARM_DESC(avsync_debug, "1: log the clock trim, 2: also the timing of each write");
 
@@ -47,6 +50,8 @@ MODULE_PARM_DESC(avsync_debug, "1: log the clock trim, 2: also the timing of eac
 #define GATE_EARLY_US		4000000
 #define GATE_LEAD_US		3000
 #define GATE_POLL_MS		10
+/* demux audio this far behind the system clock is skipped, in 90 kHz */
+#define STALE_PTS		(90 * 200)
 
 static bool avsync_gate_wait(struct aml_avsync *s, s64 *wait_us);
 
@@ -202,6 +207,27 @@ void aml_avsync_set_sysclock(struct aml_avsync *s, bool on)
 	tsync_pcr_set_sysclock(on);
 }
 
+/* a player in pause: hold the system clock */
+void aml_avsync_hold_clock(bool hold)
+{
+	tsync_pcr_hold(hold);
+}
+
+/* audio of a demux PES this far behind the system clock comes too late to
+ * play with the picture
+ */
+bool aml_avsync_stale(u32 pts)
+{
+	u32 scr;
+
+	if (tsync_get_mode() != TSYNC_MODE_PCRMASTER ||
+	    !tsync_pcr_demux_pcr_used())
+		return false;
+	scr = timestamp_pcrscr_get();
+
+	return scr && (s32)(pts - scr) < -STALE_PTS;
+}
+
 void aml_avsync_get_status(struct aml_avsync *s, long *val, int n)
 {
 	long v[7];
@@ -233,6 +259,28 @@ snd_pcm_uframes_t aml_avsync_pointer(struct aml_avsync *s,
 	s->last_phys = phys;
 
 	return ((snd_pcm_sframes_t)phys + s->ptr_shift % size + size) % size;
+}
+
+int aml_avsync_get_pts(struct aml_avsync *s, u64 *pts)
+{
+	struct snd_pcm_substream *substream;
+	unsigned long flags;
+	s64 frames;
+	int ret = -ENODATA;
+
+	spin_lock_irqsave(&s->lock, flags);
+	substream = s->substream;
+	if (s->started && s->mapped && s->rate && substream &&
+	    substream->runtime) {
+		frames = (s64)(substream->runtime->status->hw_ptr -
+			       s->map_frame);
+		*pts = (s->map_pts + div_s64(frames * 90000, s->rate)) &
+			0x1ffffffffULL;
+		ret = 0;
+	}
+	spin_unlock_irqrestore(&s->lock, flags);
+
+	return ret;
 }
 
 static snd_pcm_uframes_t us_to_frames(struct aml_avsync *s, s64 us)
@@ -410,20 +458,22 @@ static void avsync_update(struct aml_avsync *s,
 		}
 		s->last_pts = pts_in;
 		s->map_frame = appl;
-		s->map_pts = (u32)pts_in;
+		s->map_pts = pts_in & 0x1ffffffffULL;
 		s->mapped = true;
 	}
 	if (!s->mapped || !s->rate || !avsync_scr(s, &scr))
 		return;
 
 	now = ktime_get();
-	pts = s->map_pts +
+	pts = (u32)s->map_pts +
 		(u32)div_u64((u64)(appl - s->map_frame) * 90000, s->rate);
 	/* when the first frame of this write is due, from now */
 	due_us = div_s64((s64)(s32)(pts - scr) * 100, 9) -
-		(s64)(avsync_offset_ms - s->user_offset_ms) * 1000;
+		(s64)(avsync_offset_ms - s->user_offset_ms) * 1000 +
+		div_s64((s64)(s->quantum > 1 ? READ_ONCE(aml_avsync_delay_raw) :
+			      READ_ONCE(aml_avsync_delay_pcm)) * 100, 9);
 	if (avsync_debug > 1)
-		pr_info_ratelimited("avsync: appl %lu map %lu/%x pts %x scr %x due %lldus rate %u\n",
+		pr_info_ratelimited("avsync: appl %lu map %lu/%llx pts %x scr %x due %lldus rate %u\n",
 				    appl, s->map_frame, s->map_pts, pts, scr,
 				    due_us, s->rate);
 	if (due_us < -TIMING_LIMIT_US ||

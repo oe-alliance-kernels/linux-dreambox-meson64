@@ -1795,6 +1795,20 @@ void tsync_pcr_set_sysclock(bool on)
 }
 EXPORT_SYMBOL(tsync_pcr_set_sysclock);
 
+/* the video decoder of a player freezes without telling tsync: hold the
+ * system clock the audio follows while the player pauses
+ */
+void tsync_pcr_hold(bool hold)
+{
+	ulong flags;
+
+	spin_lock_irqsave(&tsync_pcr_lock, flags);
+	timestamp_pcrscr_enable(!hold);
+	tsync_pcr_vpause_flag = hold;
+	spin_unlock_irqrestore(&tsync_pcr_lock, flags);
+}
+EXPORT_SYMBOL(tsync_pcr_hold);
+
 int tsync_get_vpts_adjust(void)
 {
 	return tsync_vpts_adjust * 90;
