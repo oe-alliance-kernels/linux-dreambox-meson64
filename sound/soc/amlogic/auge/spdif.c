@@ -39,6 +39,7 @@
 #include "resample.h"
 #include "resample_hw.h"
 #include "spdif.h"
+#include "avsync.h"
 #include "spdif_match_table.c"
 
 #define DRV_NAME "snd_spdif"
@@ -127,6 +128,10 @@ struct aml_spdif {
 	int clk_tuning_enable;
 	bool on;
 	unsigned int iec958_fmt;
+
+	/* output paced by the tsync system clock */
+	struct aml_avsync avsync;
+	unsigned int avsync_base_freq;
 };
 
 static const struct snd_pcm_hardware aml_spdif_hardware = {
@@ -436,6 +441,153 @@ static int spdif_clk_set(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int spdif_avsync_pts_info(struct snd_kcontrol *kcontrol,
+				 struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER64;
+	uinfo->count = 1;
+	uinfo->value.integer64.min = -1;
+	uinfo->value.integer64.max = 0x1ffffffffLL;
+
+	return 0;
+}
+
+static int spdif_avsync_pts_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer64.value[0] = -1;
+
+	return 0;
+}
+
+/* PTS of the first frame of the next write */
+static int spdif_avsync_pts_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	aml_avsync_set_pts(&p_spdif->avsync,
+			   ucontrol->value.integer64.value[0]);
+
+	return 0;
+}
+
+static int spdif_avsync_offset_info(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 1;
+	uinfo->value.integer.min = -1000;
+	uinfo->value.integer.max = 1000;
+
+	return 0;
+}
+
+static int spdif_avsync_offset_get(struct snd_kcontrol *kcontrol,
+				   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	ucontrol->value.integer.value[0] = p_spdif->avsync.user_offset_ms;
+
+	return 0;
+}
+
+/* audio delay in ms, positive plays the audio later */
+static int spdif_avsync_offset_put(struct snd_kcontrol *kcontrol,
+				   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	p_spdif->avsync.user_offset_ms = ucontrol->value.integer.value[0];
+
+	return 0;
+}
+
+static int spdif_avsync_clock_get(struct snd_kcontrol *kcontrol,
+				  struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	ucontrol->value.integer.value[0] = READ_ONCE(p_spdif->avsync.sysclock);
+
+	return 0;
+}
+
+/* 0: the system clock follows the demux PCR (live TV), 1: a media player
+ * runs it; back to 0 when the output is closed
+ */
+static int spdif_avsync_clock_put(struct snd_kcontrol *kcontrol,
+				  struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	aml_avsync_set_sysclock(&p_spdif->avsync,
+				!!ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int spdif_avsync_status_info(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 7;
+	uinfo->value.integer.min = INT_MIN;
+	uinfo->value.integer.max = INT_MAX;
+
+	return 0;
+}
+
+/* error us, clock trim ppm, frame shift, drops, restarts, state, inserts */
+static int spdif_avsync_status_get(struct snd_kcontrol *kcontrol,
+				   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
+
+	aml_avsync_get_status(&p_spdif->avsync,
+			      ucontrol->value.integer.value, 7);
+
+	return 0;
+}
+
+#define SPDIF_AVSYNC_CONTROLS(prefix) \
+	{ \
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+		.name = prefix "Audio Sync PTS", \
+		.info = spdif_avsync_pts_info, \
+		.get = spdif_avsync_pts_get, \
+		.put = spdif_avsync_pts_put, \
+	}, \
+	{ \
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+		.name = prefix "Audio Sync Offset", \
+		.info = spdif_avsync_offset_info, \
+		.get = spdif_avsync_offset_get, \
+		.put = spdif_avsync_offset_put, \
+	}, \
+	{ \
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+		.name = prefix "Audio Sync Clock", \
+		.info = snd_ctl_boolean_mono_info, \
+		.get = spdif_avsync_clock_get, \
+		.put = spdif_avsync_clock_put, \
+	}, \
+	{ \
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+		.name = prefix "Audio Sync Status", \
+		.access = SNDRV_CTL_ELEM_ACCESS_READ | \
+			SNDRV_CTL_ELEM_ACCESS_VOLATILE, \
+		.info = spdif_avsync_status_info, \
+		.get = spdif_avsync_status_get, \
+	}
+
 static const struct snd_kcontrol_new snd_spdif_controls[] = {
 
 	SOC_ENUM_EXT("SPDIFIN audio samplerate",
@@ -467,6 +619,7 @@ static const struct snd_kcontrol_new snd_spdif_controls[] = {
 				0, aml_get_hdmi_out_audio,
 				aml_set_hdmi_out_audio),
 #endif
+	SPDIF_AVSYNC_CONTROLS("SPDIF "),
 };
 
 static const struct snd_kcontrol_new snd_spdif_clk_controls[] = {
@@ -546,6 +699,7 @@ static const struct snd_kcontrol_new snd_spdif_b_controls[] = {
 	SOC_SINGLE_BOOL_EXT("Audio spdif_b mute",
 			    0, aml_audio_get_spdif_mute,
 			    aml_audio_set_spdif_mute),
+	SPDIF_AVSYNC_CONTROLS(""),
 };
 
 static bool spdifin_check_audiotype_by_sw(struct aml_spdif *p_spdif)
@@ -972,6 +1126,9 @@ static int aml_spdif_hw_params(struct snd_pcm_substream *substream,
 
 static int aml_spdif_hw_free(struct snd_pcm_substream *substream)
 {
+	struct aml_spdif *p_spdif = substream->runtime->private_data;
+
+	aml_avsync_set_sysclock(&p_spdif->avsync, false);
 	snd_pcm_lib_free_pages(substream);
 
 	return 0;
@@ -1017,9 +1174,21 @@ static int aml_spdif_prepare(struct snd_pcm_substream *substream)
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		struct frddr *fr = p_spdif->fddr;
+		unsigned int codec = p_spdif->id == 0 ?
+			spdif_get_codec() : p_spdif->iec958_fmt;
+		/* raw formats like E-AC-3 run the output at four times the rate */
+		bool clk4x = (p_spdif->id == 0 && spdif_is_4x_clk()) ||
+			(p_spdif->id == 1 && spdif_4x_rate_fmt(codec));
 
 		aml_frddr_set_buf(fr, start_addr, end_addr);
 		aml_frddr_set_intrpt(fr, int_addr);
+		/* the output sends two channels; high bitrate audio packs
+		 * eight channels at four times the rate
+		 */
+		aml_avsync_prepare(&p_spdif->avsync, substream,
+				   codec != STEREO_PCM,
+				   runtime->rate * (clk4x ? 4 : 1) * 2 /
+				   max(runtime->channels, 2U));
 	} else {
 		struct toddr *to = p_spdif->tddr;
 
@@ -1038,15 +1207,20 @@ static snd_pcm_uframes_t aml_spdif_pointer(struct snd_pcm_substream *substream)
 	snd_pcm_uframes_t frames;
 
 	start_addr = runtime->dma_addr;
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		/* the output has not started yet */
+		if (aml_avsync_gating(&p_spdif->avsync))
+			return 0;
 		addr = aml_frddr_get_position(p_spdif->fddr);
-	else
+	} else
 		addr = aml_toddr_get_position(p_spdif->tddr);
 
 	frames = bytes_to_frames(runtime, addr - start_addr);
 	if (frames > runtime->buffer_size)
 		frames = 0;
 
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		return aml_avsync_pointer(&p_spdif->avsync, runtime, frames);
 	return frames;
 }
 
@@ -1064,6 +1238,24 @@ int aml_spdif_silence(struct snd_pcm_substream *substream, int channel,
 	return 0;
 }
 
+static int aml_spdif_copy(struct snd_pcm_substream *substream, int channel,
+			  snd_pcm_uframes_t pos, void __user *buf,
+			  snd_pcm_uframes_t count)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct aml_spdif *p_spdif = runtime->private_data;
+
+	if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK) {
+		if (copy_to_user(buf, runtime->dma_area +
+				 frames_to_bytes(runtime, pos),
+				 frames_to_bytes(runtime, count)))
+			return -EFAULT;
+		return 0;
+	}
+
+	return aml_avsync_copy(&p_spdif->avsync, substream, pos, buf, count);
+}
+
 static int aml_spdif_mmap(struct snd_pcm_substream *substream,
 			struct vm_area_struct *vma)
 {
@@ -1079,6 +1271,7 @@ static struct snd_pcm_ops aml_spdif_ops = {
 	.prepare   = aml_spdif_prepare,
 	.trigger   = aml_spdif_trigger,
 	.pointer   = aml_spdif_pointer,
+	.copy      = aml_spdif_copy,
 	.silence   = aml_spdif_silence,
 	.mmap      = aml_spdif_mmap,
 };
@@ -1369,9 +1562,16 @@ static int aml_dai_spdif_trigger(struct snd_pcm_substream *substream, int cmd,
 			p_spdif->id);
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			dev_info(substream->pcm->card->dev, "S/PDIF Playback enable\n");
 			aml_spdif_enable(p_spdif->actrl,
 			    substream->stream, p_spdif->id, true);
+			if (!aml_avsync_trigger_start(&p_spdif->avsync)) {
+				/* zeros until the first frame is due */
+				aml_spdif_mute(p_spdif->actrl,
+					substream->stream, p_spdif->id, true);
+				dev_info(substream->pcm->card->dev, "S/PDIF Playback held for AV sync\n");
+				break;
+			}
+			dev_info(substream->pcm->card->dev, "S/PDIF Playback enable\n");
 			aml_frddr_enable(p_spdif->fddr, 1);
 			udelay(100);
 			aml_spdif_mute(p_spdif->actrl,
@@ -1388,6 +1588,7 @@ static int aml_dai_spdif_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			aml_avsync_trigger_stop(&p_spdif->avsync);
 			dev_info(substream->pcm->card->dev, "S/PDIF Playback disable\n");
 			/* continuous-clock, spdif out is not disable,
 			 * only mute, ensure spdif outputs zero data.
@@ -1437,6 +1638,7 @@ static int aml_dai_spdif_hw_params(struct snd_pcm_substream *substream,
 
 		snd_soc_dai_set_sysclk(cpu_dai,
 				0, rate, SND_SOC_CLOCK_OUT);
+		p_spdif->avsync_base_freq = p_spdif->sysclk_freq;
 	} else {
 		clk_set_rate(p_spdif->clk_spdifin, 500000000);
 	}
@@ -1690,6 +1892,34 @@ static int aml_spdif_parse_of(struct platform_device *pdev)
 	return 0;
 }
 
+/* gate timer: the first frame is due */
+static void aml_spdif_avsync_start(void *priv)
+{
+	struct aml_spdif *p_spdif = priv;
+
+	aml_frddr_enable(p_spdif->fddr, 1);
+	udelay(100);
+	aml_spdif_mute(p_spdif->actrl, SNDRV_PCM_STREAM_PLAYBACK,
+		       p_spdif->id, p_spdif->mute);
+}
+
+static void aml_spdif_avsync_set_ppm(void *priv, int ppm)
+{
+	struct aml_spdif *p_spdif = priv;
+	unsigned int freq = p_spdif->avsync_base_freq;
+
+	if (!freq)
+		return;
+	freq += (int)div_s64((s64)freq * ppm, 1000000);
+	clk_set_rate(p_spdif->sysclk, freq * 4);
+	clk_set_rate(p_spdif->clk_spdifout, freq);
+}
+
+static const struct aml_avsync_ops aml_spdif_avsync_ops = {
+	.start = aml_spdif_avsync_start,
+	.set_ppm = aml_spdif_avsync_set_ppm,
+};
+
 static int aml_spdif_platform_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
@@ -1710,6 +1940,7 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 
 	aml_spdif->dev = dev;
 	dev_set_drvdata(dev, aml_spdif);
+	aml_avsync_init(&aml_spdif->avsync, &aml_spdif_avsync_ops, aml_spdif);
 
 	/* match data */
 	p_spdif_chipinfo = (struct spdif_chipinfo *)

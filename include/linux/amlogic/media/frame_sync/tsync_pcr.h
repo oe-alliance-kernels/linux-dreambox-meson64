@@ -26,6 +26,8 @@ extern void tsync_pcr_stop(void);
 
 extern int tsync_pcr_set_apts(unsigned int pts);
 
+void tsync_pcr_set_sysclock(bool on);
+
 extern int get_vsync_pts_inc_mode(void);
 
 int tsync_pcr_init(void);

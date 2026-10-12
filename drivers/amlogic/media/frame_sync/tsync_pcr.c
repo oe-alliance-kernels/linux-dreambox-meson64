@@ -216,6 +216,9 @@ static u32 tsync_demux_pcr_continue_count;
 
 static int tsync_vpts_adjust;
 static u32 tsync_disable_demux_pcr;
+/* started before the demux reported its PCR: follow it once it is valid */
+static bool tsync_pcr_wait_demux;
+static int tsync_pcr_wait_demux_cnt;
 static u32 tsync_audio_mode;
 static u32 tsync_audio_state;
 static u32 tsync_video_state;
@@ -370,6 +373,9 @@ static void tsync_set_pcr_mode(int mode, u32 param)
 		pr_info("tsync_use_demux_pcr: %d to %d, param=0x%x\n",
 			tsync_use_demux_pcr, mode, param);
 	}
+	/* a player without a PCR keeps the system clock */
+	if (mode == 1 && tsync_disable_demux_pcr)
+		return;
 	if (mode == 0) {
 		tsync_use_demux_pcr = 0;
 		timestamp_pcrscr_set(param);
@@ -1004,6 +1010,23 @@ static void tsync_process_discontinue(void)
 	tsync_pcr_last_jiffes = jiffies_to_msecs(jiffies);
 	tsync_last_pcr_get = timestamp_pcrscr_get();
 
+	if (tsync_pcr_wait_demux) {
+		if (tsync_disable_demux_pcr ||
+		    tsync_pcr_inited_mode == INIT_PRIORITY_PCR) {
+			tsync_pcr_wait_demux = false;
+		} else if (!tsync_get_demux_pcrscr_valid()) {
+			tsync_pcr_wait_demux_cnt = 0;
+		} else if (++tsync_pcr_wait_demux_cnt >= 50) {
+			tsync_pcr_wait_demux = false;
+			tsync_set_pcr_mode(1, cur_tsdemuxpcr);
+			tsync_pcr_inited_mode = INIT_PRIORITY_PCR;
+			tsync_pcr_tsdemuxpcr_discontinue = 0;
+			pr_info("tsync_pcr: demux PCR valid now, follow it, pcr %x vpts %x\n",
+				cur_tsdemuxpcr, cur_vpts);
+			return;
+		}
+	}
+
 	if (tsync_pcr_inited_mode != INIT_PRIORITY_PCR) {
 		if ((tsync_pcr_tsdemuxpcr_discontinue & VIDEO_DISCONTINUE)
 			== VIDEO_DISCONTINUE) {
@@ -1095,7 +1118,8 @@ static void tsync_process_discontinue(void)
 	} else if ((tsync_pcr_tsdemuxpcr_discontinue &
 		(VIDEO_DISCONTINUE|PCR_DISCONTINUE)) ==
 		(VIDEO_DISCONTINUE|PCR_DISCONTINUE)) {
-		tsync_use_demux_pcr = 1;
+		if (!tsync_disable_demux_pcr)
+			tsync_use_demux_pcr = 1;
 		tsync_pcr_tsdemuxpcr_discontinue = 0;
 	}
 }
@@ -1749,6 +1773,28 @@ int tsync_pcr_set_apts(unsigned int pts)
 }
 EXPORT_SYMBOL(tsync_pcr_set_apts);
 
+/* a player without a PCR (media playback): the demux reports a PCR all the
+ * same, so run the system clock free from the video, also when tsync started
+ * on the demux already
+ */
+void tsync_pcr_set_sysclock(bool on)
+{
+	ulong flags;
+	u32 vpts;
+
+	spin_lock_irqsave(&tsync_pcr_lock, flags);
+	tsync_disable_demux_pcr = on;
+	if (on && tsync_pcr_started && tsync_use_demux_pcr) {
+		vpts = timestamp_vpts_get();
+		tsync_set_pcr_mode(0, vpts ? vpts : timestamp_pcrscr_get());
+		tsync_pcr_inited_mode = INIT_PRIORITY_VIDEO;
+		pr_info("tsync_pcr: system clock from 0x%x\n",
+			timestamp_pcrscr_get());
+	}
+	spin_unlock_irqrestore(&tsync_pcr_lock, flags);
+}
+EXPORT_SYMBOL(tsync_pcr_set_sysclock);
+
 int tsync_get_vpts_adjust(void)
 {
 	return tsync_vpts_adjust * 90;
@@ -1777,7 +1823,10 @@ int tsync_pcr_start(void)
 		    tsync_disable_demux_pcr == 1) {
 			tsync_use_demux_pcr = 0;
 			tsync_pcr_inited_mode = INIT_PRIORITY_AUDIO;
+			tsync_pcr_wait_demux = !tsync_disable_demux_pcr;
+			tsync_pcr_wait_demux_cnt = 0;
 		} else {
+			tsync_pcr_wait_demux = false;
 			tsync_use_demux_pcr = 1;
 			tsync_pcr_inited_mode = INIT_PRIORITY_PCR;
 		}

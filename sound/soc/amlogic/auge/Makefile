@@ -13,6 +13,7 @@ obj-$(CONFIG_AMLOGIC_SND_SOC_AUGE)	+= audio_controller.o \
 						tdm_hw.o \
 						spdif.o \
 						spdif_hw.o \
+						avsync.o \
 						pdm.o \
 						pdm_hw.o \
 						iomap.o \
