@@ -184,15 +184,19 @@ void sharemem_mutex_lock(void)
 {
 	mutex_lock(&sharemem_mutex);
 }
+EXPORT_SYMBOL(sharemem_mutex_lock);
+
 void sharemem_mutex_unlock(void)
 {
 	mutex_unlock(&sharemem_mutex);
 }
+EXPORT_SYMBOL(sharemem_mutex_unlock);
 
 void __iomem *get_secmon_sharemem_input_base(void)
 {
 	return sharemem_in_base;
 }
+EXPORT_SYMBOL(get_secmon_sharemem_input_base);
 void __iomem *get_secmon_sharemem_output_base(void)
 {
 	return sharemem_out_base;
@@ -202,6 +206,8 @@ long get_secmon_phy_input_base(void)
 {
 	return phy_in_base;
 }
+EXPORT_SYMBOL(get_secmon_phy_input_base);
+
 long get_secmon_phy_output_base(void)
 {
 	return phy_out_base;

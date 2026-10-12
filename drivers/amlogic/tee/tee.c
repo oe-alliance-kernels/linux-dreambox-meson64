@@ -30,7 +30,8 @@
 #define TEE_MSG_UID_1         0xe7f811e3
 #define TEE_MSG_UID_2         0xaf630002
 #define TEE_MSG_UID_3         0xa5d5c51b
-static int disable_flag;
+int tee_disable_flag;
+EXPORT_SYMBOL(tee_disable_flag);
 #define TEE_SMC_FUNCID_CALLS_REVISION 0xFF03
 #define TEE_SMC_CALLS_REVISION \
 	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_32, \
@@ -180,18 +181,11 @@ int tee_load_video_fw_swap(uint32_t index, uint32_t vdec, bool is_swap)
 }
 EXPORT_SYMBOL(tee_load_video_fw_swap);
 
+/* The secure monitor of the Dreambox reports a TEE, but the video firmware
+ * cannot be loaded through it; the decoders load it themselves.
+ */
 bool tee_enabled(void)
 {
-	struct arm_smccc_res res;
-	if (disable_flag == 1)
-		return false;
-	/*return false;*/ /*disable tee load temporary*/
-
-	arm_smccc_smc(TEE_SMC_CALLS_UID, 0, 0, 0, 0, 0, 0, 0, &res);
-
-	if (res.a0 == TEE_MSG_UID_0 && res.a1 == TEE_MSG_UID_1 &&
-	    res.a2 == TEE_MSG_UID_2 && res.a3 == TEE_MSG_UID_3)
-		return true;
 	return false;
 }
 EXPORT_SYMBOL(tee_enabled);
@@ -298,7 +292,8 @@ static void __exit aml_tee_modexit(void)
 {
 	class_destroy(tee_sys_class);
 }
-module_param(disable_flag, uint, 0664);
+module_param(tee_disable_flag, int, 0664);
+module_param_named(disable_flag, tee_disable_flag, int, 0664);
 MODULE_PARM_DESC(disable_flag, "\n tee firmload disable_flag flag\n");
 
 module_exit(aml_tee_modexit);

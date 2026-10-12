@@ -131,7 +131,12 @@ static struct class *di_clsp;
 static const char version_s[] = "2019-06-20a: afbc switch from vpp";
 
 static int bypass_state = 1;
-static int bypass_all;
+int bypass_all;
+EXPORT_SYMBOL(bypass_all);
+void (*progressive_changed_cb)(unsigned char progressive, void *priv);
+EXPORT_SYMBOL(progressive_changed_cb);
+void *progressive_changed_cb_priv;
+EXPORT_SYMBOL(progressive_changed_cb_priv);
 /*1:enable bypass pre,ei only;
  * 2:debug force bypass pre,ei for post
  */
@@ -4617,6 +4622,9 @@ jiffies_to_msecs(jiffies_64 - vframe->ready_jiffies64));
 
 			di_pre_stru.cur_prog_flag =
 				is_progressive(di_buf->vframe);
+			if (progressive_changed_cb)
+				progressive_changed_cb(di_pre_stru.cur_prog_flag,
+						       progressive_changed_cb_priv);
 			if (di_pre_stru.cur_prog_flag) {
 				if ((use_2_interlace_buff) &&
 				    !(prog_proc_config & 0x10))
@@ -7480,12 +7488,21 @@ static void di_reg_process_irq(void)
 					vframe->width,
 					vframe->height,
 					vframe->type);
+				if (progressive_changed_cb &&
+				    !di_pre_stru.cur_prog_flag)
+					progressive_changed_cb(1,
+						progressive_changed_cb_priv);
 			}
 			di_pre_stru.bypass_flag = true;
 			di_patch_post_update_mc_sw(DI_MC_SW_OTHER, false);
 			di_pre_stru.reg_irq_busy = false;
 			return;
 		} else {
+			/* interlaced again after the bypass */
+			if (progressive_changed_cb && di_pre_stru.bypass_flag &&
+			    !di_pre_stru.cur_prog_flag)
+				progressive_changed_cb(0,
+					progressive_changed_cb_priv);
 			di_pre_stru.bypass_flag = false;
 		}
 		di_tr_ops.pre_get(vframe->omx_index);

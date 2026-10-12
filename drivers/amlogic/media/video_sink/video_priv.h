@@ -512,6 +512,10 @@ struct vframe_s *dvel_toggle_frame(
 
 #ifdef CONFIG_AMLOGIC_MEDIA_VIDEOCAPTURE
 int ext_frame_capture_poll(int endflags);
+struct amvideocap_req;
+int ext_frame_new_capture_poll(struct vframe_s *vf, int index);
+int ext_register_new_frame_callback(struct amvideocap_req *req);
+int ext_register_end_frame_callback(struct amvideocap_req *req);
 #endif
 bool is_meson_tm2_revb(void);
 bool is_meson_sc2_cpu(void);

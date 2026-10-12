@@ -1703,3 +1703,20 @@ __setup("lcd_ctrl=", lcd_boot_ctrl_setup);
 MODULE_DESCRIPTION("Meson LCD Panel Driver");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Amlogic, Inc.");
+
+void lcd_mipi_set_state(int on)
+{
+	struct aml_lcd_drv_s *lcd_drv = aml_lcd_get_driver();
+
+	if (!lcd_drv)
+		return;
+	mutex_lock(&lcd_drv->power_mutex);
+	if (on) {
+		aml_lcd_notifier_call_chain(LCD_EVENT_POWER_ON, NULL);
+		lcd_if_enable_retry(lcd_drv->lcd_config);
+	} else {
+		aml_lcd_notifier_call_chain(LCD_EVENT_POWER_OFF, NULL);
+	}
+	mutex_unlock(&lcd_drv->power_mutex);
+}
+EXPORT_SYMBOL(lcd_mipi_set_state);

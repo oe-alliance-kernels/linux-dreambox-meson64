@@ -523,3 +523,6 @@ void amcanvas_manager_exit(void)
 {
 	class_unregister(&canvas_class);
 }
+
+EXPORT_SYMBOL(canvas_pool_map_alloc_canvas);
+EXPORT_SYMBOL(canvas_pool_map_free_canvas);

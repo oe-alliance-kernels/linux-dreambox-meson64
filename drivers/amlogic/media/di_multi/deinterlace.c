@@ -93,7 +93,11 @@
 
 #ifdef DET3D
 #include "detect3d.h"
+
 #endif
+extern void (*progressive_changed_cb)(unsigned char progressive, void *priv);
+extern void *progressive_changed_cb_priv;
+
 //#define ENABLE_SPIN_LOCK_ALWAYS
 
 static DEFINE_SPINLOCK(di_lock2);
@@ -10734,6 +10738,9 @@ void di_reg_variable(unsigned int channel, struct vframe_s *vframe)
 						vframe->width,
 						vframe->height,
 						vframe->type);
+					if (progressive_changed_cb)
+						progressive_changed_cb(1,
+							progressive_changed_cb_priv);
 				}
 				ppre->bypass_flag = true;
 				ppre->sgn_lv	= EDI_SGN_OTHER;
@@ -10743,6 +10750,8 @@ void di_reg_variable(unsigned int channel, struct vframe_s *vframe)
 			}
 		}
 		dim_mp_update_reg();
+		if (ppre->bypass_flag && progressive_changed_cb)
+			progressive_changed_cb(0, progressive_changed_cb_priv);
 		ppre->bypass_flag = false;
 		/* patch for vdin progressive input */
 		if ((is_from_vdin(vframe) && is_progressive(vframe)) ||

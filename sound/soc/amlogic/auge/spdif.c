@@ -50,6 +50,12 @@
 
 /*#define __SPDIFIN_AUDIO_TYPE_HW__*/
 struct aml_spdif *spdif_priv[2];
+struct aml_spdif *spdif_a;
+EXPORT_SYMBOL(spdif_a);
+struct aml_spdif *spdif_b;
+EXPORT_SYMBOL(spdif_b);
+extern int spdif_a_mute, spdif_b_mute;
+bool spdifout_is_enable(int spdif_id);
 
 static int aml_dai_set_spdif_sysclk(struct snd_soc_dai *cpu_dai,
 				int clk_id, unsigned int freq, int dir);
@@ -1781,6 +1787,13 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 		dev_err(dev, "devm_snd_soc_register_component failed\n");
 		return ret;
 	}
+	if (aml_spdif->id == 0) {
+		spdif_a_mute = 0;
+		spdif_a = aml_spdif;
+	} else if (aml_spdif->id == 1) {
+		spdif_b_mute = 0;
+		spdif_b = aml_spdif;
+	}
 	spdif_priv[aml_spdif->id] = aml_spdif;
 	pr_info("%s, register soc platform\n", __func__);
 
@@ -1804,3 +1817,16 @@ MODULE_DESCRIPTION("Amlogic S/PDIF ASoc driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRV_NAME);
 MODULE_DEVICE_TABLE(of, aml_spdif_device_id);
+
+int amlogic_audio_set_spdif_mute(struct aml_spdif *p_spdif, int mute)
+{
+	int *state = p_spdif->id ? &spdif_b_mute : &spdif_a_mute;
+	bool was_muted = *state != 0;
+
+	*state = mute ? 0x3 : 0;
+	if (spdifout_is_enable(p_spdif->id) && !!mute != was_muted)
+		aml_spdif_mute(p_spdif->actrl, SNDRV_PCM_STREAM_PLAYBACK,
+			       p_spdif->id, !!mute);
+	return 0;
+}
+EXPORT_SYMBOL(amlogic_audio_set_spdif_mute);

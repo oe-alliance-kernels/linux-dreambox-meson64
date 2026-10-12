@@ -120,6 +120,12 @@ unsigned int get_resume_method(void)
 }
 EXPORT_SYMBOL(get_resume_method);
 
+unsigned int get_resume_reason(void)
+{
+	return get_resume_method();
+}
+EXPORT_SYMBOL_GPL(get_resume_reason);
+
 static const struct platform_suspend_ops meson_gx_ops = {
 	.enter = meson_gx_enter,
 	.prepare = meson_pm_prepare,

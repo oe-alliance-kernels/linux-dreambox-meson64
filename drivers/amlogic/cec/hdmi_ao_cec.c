@@ -569,6 +569,110 @@ int __attribute__((weak))hdmirx_get_connect_info(void)
 	return 0;
 }
 
+static struct cec_uevent cec_events[] = {
+	{
+		.type = HDMI_PLUG_EVENT,
+		.env = "hdmi_conn=",
+	},
+	{
+		.type = CEC_RX_MSG,
+		.env = "cec_rx_msg=",
+	},
+	{
+		/* end of cec_events[] */
+		.type = CEC_NONE_EVENT,
+	},
+};
+
+int cec_set_uevent(enum cec_event_type type, unsigned int val)
+{
+	char env[MAX_UEVENT_LEN];
+	struct cec_uevent *event;
+	char *envp[2];
+	int ret = -1;
+
+	if (!cec_dev || !cec_dev->dbg_dev)
+		return ret;
+
+	/* hdmi_plug/cec_rx_msg uevent may concurrent, need mutex */
+	mutex_lock(&cec_dev->cec_uevent_mutex);
+	for (event = cec_events; event->type != CEC_NONE_EVENT; event++) {
+		if (type == event->type)
+			break;
+	}
+	if (event->type == CEC_NONE_EVENT) {
+		CEC_ERR("[%s] unsupported event:0x%x\n", __func__, type);
+		mutex_unlock(&cec_dev->cec_uevent_mutex);
+		return ret;
+	}
+	if (event->state == val) {
+		CEC_INFO("[%s] state not chg:0x%x\n", __func__, val);
+		mutex_unlock(&cec_dev->cec_uevent_mutex);
+		return ret;
+	}
+	event->state = val;
+	memset(env, 0, sizeof(env));
+	envp[0] = env;
+	envp[1] = NULL;
+	snprintf(env, MAX_UEVENT_LEN, "%s%u", event->env, val);
+
+	ret = kobject_uevent_env(&cec_dev->dbg_dev->kobj, KOBJ_CHANGE, envp);
+	CEC_INFO("[%s] %s %d\n", __func__, env, ret);
+	mutex_unlock(&cec_dev->cec_uevent_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL(cec_set_uevent);
+
+/* handler for both hdmitx & rx */
+static void cec_hdmi_plug_handler(struct work_struct *work)
+{
+	unsigned int tmp = 0;
+
+	tmp |= (get_hpd_state() << 4);
+	tmp |= (hdmirx_get_connect_info() & 0xF);
+	cec_set_uevent(HDMI_PLUG_EVENT, tmp);
+}
+
+static void cec_rx_uevent_handler(struct work_struct *work)
+{
+	/* notify framework to read cec msg */
+	cec_set_uevent(CEC_RX_MSG, 1);
+	/* clear notify */
+	cec_set_uevent(CEC_RX_MSG, 0);
+}
+
+static void cec_queue_hdmi_plug(void)
+{
+	if (cec_dev && cec_dev->hdmi_plug_wq)
+		queue_delayed_work(cec_dev->hdmi_plug_wq,
+				   &cec_dev->work_hdmi_plug, 0);
+}
+
+static int hdmitx_notify_callback(struct notifier_block *block,
+				  unsigned long cmd, void *para)
+{
+	if (cmd != HDMITX_PLUG && cmd != HDMITX_UNPLUG) {
+		CEC_ERR("[%s] unsupported notify:%ld\n", __func__, cmd);
+		return NOTIFY_DONE;
+	}
+	CEC_INFO("[%s] event: %ld\n", __func__, cmd);
+	cec_queue_hdmi_plug();
+	return NOTIFY_OK;
+}
+
+static struct notifier_block cec_hdmitx_nb = {
+	.notifier_call = hdmitx_notify_callback,
+};
+
+#ifdef CONFIG_AMLOGIC_MEDIA_TVIN_HDMI
+static int hdmirx_notify_callback(unsigned int pwr5v_sts)
+{
+	cec_queue_hdmi_plug();
+	return 0;
+}
+#endif
+
 static bool cec_message_op(unsigned char *msg, unsigned char len)
 {
 	int i, j;
@@ -3578,6 +3682,9 @@ void cec_new_msg_push(void)
 		complete(&cec_dev->rx_ok);
 		new_msg = 1;
 		wake_up(&cec_msg_wait_queue);
+		if (cec_dev->cec_rx_event_wq)
+			queue_delayed_work(cec_dev->cec_rx_event_wq,
+					   &cec_dev->work_cec_rx, 0);
 	}
 }
 
@@ -4286,6 +4393,18 @@ static int aml_cec_probe(struct platform_device *pdev)
 		ret = -EFAULT;
 		goto tag_cec_threat_err;
 	}
+	mutex_init(&cec_dev->cec_uevent_mutex);
+	INIT_DELAYED_WORK(&cec_dev->work_hdmi_plug, cec_hdmi_plug_handler);
+	INIT_DELAYED_WORK(&cec_dev->work_cec_rx, cec_rx_uevent_handler);
+	cec_dev->hdmi_plug_wq = create_singlethread_workqueue("cec_hdmi_plug");
+	cec_dev->cec_rx_event_wq =
+		create_singlethread_workqueue("cec_rx_event");
+	if (!cec_dev->hdmi_plug_wq || !cec_dev->cec_rx_event_wq)
+		CEC_ERR("create uevent work queue failed\n");
+	hdmitx_event_notifier_regist(&cec_hdmitx_nb);
+#ifdef CONFIG_AMLOGIC_MEDIA_TVIN_HDMI
+	register_cec_callback(hdmirx_notify_callback);
+#endif
 	/*freeze wakeup init*/
 	device_init_wakeup(&pdev->dev, 1);
 	/*CEC_INFO("dev init wakeup\n");*/
@@ -4354,6 +4473,18 @@ static int aml_cec_remove(struct platform_device *pdev)
 	if (cec_dev->cec_thread) {
 		cancel_delayed_work_sync(&cec_dev->cec_work);
 		destroy_workqueue(cec_dev->cec_thread);
+	}
+#ifdef CONFIG_AMLOGIC_MEDIA_TVIN_HDMI
+	unregister_cec_callback();
+#endif
+	hdmitx_event_notifier_unregist(&cec_hdmitx_nb);
+	if (cec_dev->hdmi_plug_wq) {
+		cancel_delayed_work_sync(&cec_dev->work_hdmi_plug);
+		destroy_workqueue(cec_dev->hdmi_plug_wq);
+	}
+	if (cec_dev->cec_rx_event_wq) {
+		cancel_delayed_work_sync(&cec_dev->work_cec_rx);
+		destroy_workqueue(cec_dev->cec_rx_event_wq);
 	}
 	input_unregister_device(cec_dev->cec_info.remote_cec_dev);
 	unregister_chrdev(cec_dev->cec_info.dev_no, CEC_DEV_NAME);

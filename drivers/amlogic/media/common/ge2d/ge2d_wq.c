@@ -750,6 +750,7 @@ void ge2d_wq_set_scale_coef(struct ge2d_context_s *wq,
 		wq->config.update_flag |= UPDATE_SCALE_COEF;
 	}
 }
+EXPORT_SYMBOL(ge2d_wq_set_scale_coef);
 
 int ge2d_wq_add_work(struct ge2d_context_s *wq)
 {

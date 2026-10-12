@@ -462,6 +462,7 @@ static int scaler_pos_changed;
 #endif
 
 static struct amvideocap_req *capture_frame_req;
+static struct amvideocap_req *capture_new_frame_req;
 u32 get_video_angle(void)
 {
 	return glayer_info[0].angle;
@@ -980,6 +981,11 @@ void set_pts_realign(void)
 }
 EXPORT_SYMBOL(set_pts_realign);
 
+void (*frame_rate_changed_cb)(unsigned long duration, void *priv);
+EXPORT_SYMBOL(frame_rate_changed_cb);
+void *frame_rate_changed_cb_priv;
+EXPORT_SYMBOL(frame_rate_changed_cb_priv);
+
 u32 get_first_pic_coming(void)
 {
 	return first_frame_toggled;
@@ -1186,6 +1192,20 @@ static inline struct vframe_s *video_vf_peek(void)
 	return vf;
 }
 
+#ifdef CONFIG_AMLOGIC_MEDIA_VIDEOCAPTURE
+int ext_frame_new_capture_poll(struct vframe_s *vf, int index)
+{
+	struct amvideocap_req *req = capture_new_frame_req;
+
+	if (req && req->callback && vf) {
+		atomic_inc(&vf->use_cnt);
+		req->callback(req->data, vf, index);
+	}
+	return 0;
+}
+EXPORT_SYMBOL(ext_frame_new_capture_poll);
+#endif
+
 static inline struct vframe_s *video_vf_get(void)
 {
 	struct vframe_s *vf = NULL;
@@ -1270,6 +1290,9 @@ static inline struct vframe_s *video_vf_get(void)
 			vf->right_eye.width = frame_width;
 			vf->right_eye.height = frame_height/2;
 		}
+#ifdef CONFIG_AMLOGIC_MEDIA_VIDEOCAPTURE
+		ext_frame_new_capture_poll(vf, vf->index);
+#endif
 		receive_frame_count++;
 #endif
 	}
@@ -1388,6 +1411,15 @@ int ext_put_video_frame(struct vframe_s *vf)
 	return 0;
 }
 
+int ext_register_new_frame_callback(struct amvideocap_req *req)
+{
+	mutex_lock(&video_module_mutex);
+	capture_new_frame_req = req;
+	mutex_unlock(&video_module_mutex);
+	return 0;
+}
+EXPORT_SYMBOL(ext_register_new_frame_callback);
+
 int ext_register_end_frame_callback(struct amvideocap_req *req)
 {
 	mutex_lock(&video_module_mutex);
@@ -1395,6 +1427,8 @@ int ext_register_end_frame_callback(struct amvideocap_req *req)
 	mutex_unlock(&video_module_mutex);
 	return 0;
 }
+EXPORT_SYMBOL(ext_register_end_frame_callback);
+
 int ext_frame_capture_poll(int endflags)
 {
 	mutex_lock(&video_module_mutex);
@@ -1413,6 +1447,7 @@ int ext_frame_capture_poll(int endflags)
 	mutex_unlock(&video_module_mutex);
 	return 0;
 }
+EXPORT_SYMBOL(ext_frame_capture_poll);
 #endif
 
 #ifdef TV_3D_FUNCTION_OPEN
@@ -6341,6 +6376,9 @@ static int video_receiver_event_fun(int type, void *data, void *private_data)
 			set_vframe_rate_hint((unsigned long)data);
 			omx_pts_dv_upper = DUR2PTS((unsigned long)data) * 3 / 2;
 			omx_pts_dv_lower = 0 - DUR2PTS((unsigned long)data);
+			if (frame_rate_changed_cb)
+				frame_rate_changed_cb((unsigned long)data,
+						      frame_rate_changed_cb_priv);
 		}
 #endif
 	} else if (type == VFRAME_EVENT_PROVIDER_FR_END_HINT) {
@@ -12441,3 +12479,13 @@ module_param(stop_update, uint, 0664);
 MODULE_DESCRIPTION("AMLOGIC video output driver");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Tim Yao <timyao@amlogic.com>");
+
+/* used by the dreambox-dvb-modules */
+EXPORT_SYMBOL(_video_set_disable);
+EXPORT_SYMBOL(_videopip_set_disable);
+EXPORT_SYMBOL(ext_get_cur_video_frame);
+EXPORT_SYMBOL(ext_put_video_frame);
+EXPORT_SYMBOL(first_frame_toggled);
+EXPORT_SYMBOL(show_first_frame_nosync);
+EXPORT_SYMBOL(slowsync_repeat_enable);
+EXPORT_SYMBOL(vsync_slow_factor);

@@ -70,6 +70,9 @@ void aml_spdifin_chnum_en(struct aml_audio_controller *actrl,
 		aml_audiobus_read(actrl, reg));
 }
 
+int spdif_a_mute;
+int spdif_b_mute;
+
 void aml_spdif_enable(
 	struct aml_audio_controller *actrl,
 	int stream,
@@ -266,8 +269,10 @@ void aml_spdif_fifo_ctrl(
 		reg = EE_AUDIO_SPDIFOUT_CTRL0 + offset * index;
 		aml_audiobus_update_bits(actrl,
 			reg,
-			0x1 << 29 | 0x1 << 28 | 0x1 << 20 | 0x1 << 19,
-			0x1 << 29 | 0x1 << 28 | 0 << 20 | 0 << 19);
+			0x1 << 29 | 0x1 << 28 | 0x3 << 21 | 0x1 << 20 | 0x1 << 19,
+			0x1 << 29 | 0x1 << 28 |
+			(index ? spdif_b_mute : spdif_a_mute) << 21 |
+			0 << 20 | 0 << 19);
 
 		out_lane_mask = spdifout_get_lane_mask_version(index);
 		if (out_lane_mask == SPDIFOUT_LANE_MASK_V2)
@@ -483,7 +488,8 @@ static void spdifout_fifo_ctrl(int spdif_id,
 	offset = EE_AUDIO_SPDIFOUT_B_CTRL0 - EE_AUDIO_SPDIFOUT_CTRL0;
 	reg = EE_AUDIO_SPDIFOUT_CTRL0 + offset * spdif_id;
 	audiobus_update_bits(reg,
-		0x1 << 20 | 0x1 << 19,
+		0x3 << 21 | 0x1 << 20 | 0x1 << 19,
+		(spdif_id ? spdif_b_mute : spdif_a_mute) << 21 |
 		0 << 20 | 0 << 19);
 
 	if (spdifout_get_lane_mask_version(spdif_id) == SPDIFOUT_LANE_MASK_V2)
@@ -507,7 +513,7 @@ static void spdifout_fifo_ctrl(int spdif_id,
 	audiobus_write(reg, swap_masks);
 }
 
-static bool spdifout_is_enable(int spdif_id)
+bool spdifout_is_enable(int spdif_id)
 {
 	unsigned int offset, reg, val;
 

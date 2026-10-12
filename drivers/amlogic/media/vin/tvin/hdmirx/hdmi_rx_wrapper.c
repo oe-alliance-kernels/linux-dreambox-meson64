@@ -117,6 +117,21 @@ static bool auto_switch_off;	/* only for hardware test */
 int clk_unstable_cnt;
 static int clk_unstable_max;
 
+static cec_callback cec_hdmirx5v_update;
+
+int register_cec_callback(cec_callback callback)
+{
+	cec_hdmirx5v_update = callback;
+	return 0;
+}
+EXPORT_SYMBOL(register_cec_callback);
+
+void unregister_cec_callback(void)
+{
+	cec_hdmirx5v_update = NULL;
+}
+EXPORT_SYMBOL(unregister_cec_callback);
+
 int clk_stable_cnt;
 static int clk_stable_max = 3;
 
@@ -1989,6 +2004,8 @@ void rx_5v_monitor(void)
 		check_cnt = 0;
 		pwr_sts = tmp_5v;
 		rx.cur_5v_sts = (pwr_sts >> rx.port) & 1;
+		if (cec_hdmirx5v_update)
+			cec_hdmirx5v_update(pwr_sts);
 		hotplug_wait_query();
 		rx_pr("hotplug-0x%x\n", pwr_sts);
 		if (rx.cur_5v_sts == 0) {

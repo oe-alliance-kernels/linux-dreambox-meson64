@@ -143,6 +143,7 @@ static DEFINE_SPINLOCK(lock);
 static enum tsync_mode_e tsync_mode = TSYNC_MODE_AMASTER;
 static enum tsync_stat_e tsync_stat = TSYNC_STAT_PCRSCR_SETUP_NONE;
 static int tsync_enable;	/* 1; */
+EXPORT_SYMBOL(tsync_enable);
 static int apts_discontinue;
 static int vpts_discontinue;
 static int pts_discontinue;
@@ -2961,3 +2962,5 @@ module_param(is_tunnel_mode, uint, 0664);
 MODULE_DESCRIPTION("AMLOGIC time sync management driver");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Tim Yao <timyao@amlogic.com>");
+
+EXPORT_SYMBOL(tsync_mode);

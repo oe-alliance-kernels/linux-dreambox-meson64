@@ -467,3 +467,5 @@ EXPORT_SYMBOL(timestamp_pcrscr_enable_state);
 MODULE_DESCRIPTION("AMLOGIC time sync management driver");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Tim Yao <timyao@amlogic.com>");
+
+EXPORT_SYMBOL(pcrscr_lantcy);

@@ -129,6 +129,11 @@ extern unsigned int rx_get_scdc_clkrate_sts(void);
 extern void set_scdc_cfg(int hpdlow, int pwrprovided);
 extern void fsm_restart(void);
 extern void rx_5v_monitor(void);
+
+/* for CEC notify */
+typedef int (*cec_callback)(unsigned int pwr5v_sts);
+int register_cec_callback(cec_callback callback);
+void unregister_cec_callback(void);
 extern void rx_audio_pll_sw_update(void);
 extern void rx_acr_info_sw_update(void);
 extern void rx_sw_reset(int level);

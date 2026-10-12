@@ -2156,3 +2156,10 @@ int lcd_mipi_test_read(struct dsi_read_s *dread)
 	dread->ret_code = 0;
 	return 0;
 }
+
+int lp_lpx_val = 100;
+EXPORT_SYMBOL(lp_lpx_val);
+int lp_tesc_val = 250;
+EXPORT_SYMBOL(lp_tesc_val);
+EXPORT_SYMBOL(dsi_set_operation_mode);
+EXPORT_SYMBOL(dsi_write_cmd);

@@ -191,7 +191,34 @@ struct ao_cec_dev {
 
 	struct clk *ceca_clk;
 	struct clk *cecb_clk;
+
+	struct mutex cec_uevent_mutex;
+	struct workqueue_struct *hdmi_plug_wq;
+	struct workqueue_struct *cec_rx_event_wq;
+	struct delayed_work work_hdmi_plug;
+	struct delayed_work work_cec_rx;
 };
+
+enum cec_event_type {
+	CEC_NONE_EVENT = 0,
+	HDMI_PLUG_EVENT = 1,
+	CEC_RX_MSG = 2
+};
+
+#define MAX_UEVENT_LEN 64
+
+struct cec_uevent {
+	enum cec_event_type type;
+	unsigned int state;
+	const char *env;
+};
+
+int cec_set_uevent(enum cec_event_type type, unsigned int val);
+
+/* for CEC notify, provided by hdmirx */
+typedef int (*cec_callback)(unsigned int pwr5v_sts);
+int register_cec_callback(cec_callback callback);
+void unregister_cec_callback(void);
 
 struct cec_msg_last {
 	unsigned char msg[MAX_MSG];

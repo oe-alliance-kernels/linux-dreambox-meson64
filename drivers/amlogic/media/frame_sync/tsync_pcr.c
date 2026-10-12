@@ -2374,3 +2374,5 @@ MODULE_DESCRIPTION
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("le yang <le.yang@amlogic.com>");
 
+
+EXPORT_SYMBOL(tsync_pcr_freerun_mode);
