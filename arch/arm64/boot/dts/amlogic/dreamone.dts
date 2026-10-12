@@ -2731,13 +2731,13 @@
 
 				cpufreq_cooling_map0 {
 					trip = <0x55>;
-					cooling-device = <0x56 0x00 0x0a>;
+					cooling-device = <0x56 0x00 0xffffffff>;
 					contribution = <0x400>;
 				};
 
 				cpufreq_cooling_map1 {
 					trip = <0x55>;
-					cooling-device = <0x57 0x00 0x09>;
+					cooling-device = <0x57 0x00 0xffffffff>;
 					contribution = <0x400>;
 				};
 
@@ -3592,42 +3592,47 @@
 
 		opp00 {
 			opp-hz = <0x00 0x1dcd6500>;
-			opp-microvolt = <0xbc3b8>;
+			opp-microvolt = <0xb2778>;
 		};
 
 		opp01 {
 			opp-hz = <0x00 0x27c19cc0>;
-			opp-microvolt = <0xbc3b8>;
+			opp-microvolt = <0xb2778>;
 		};
 
 		opp02 {
 			opp-hz = <0x00 0x3b9aca00>;
-			opp-microvolt = <0xbc3b8>;
+			opp-microvolt = <0xb2778>;
 		};
 
 		opp03 {
 			opp-hz = <0x00 0x47868c00>;
-			opp-microvolt = <0xbc3b8>;
+			opp-microvolt = <0xb2778>;
 		};
 
 		opp04 {
 			opp-hz = <0x00 0x5353c980>;
-			opp-microvolt = <0xc38e8>;
+			opp-microvolt = <0xb9ca8>;
 		};
 
 		opp05 {
 			opp-hz = <0x00 0x5a1f4a00>;
-			opp-microvolt = <0xcd528>;
+			opp-microvolt = <0xc11d8>;
 		};
 
 		opp06 {
 			opp-hz = <0x00 0x5fd82200>;
-			opp-microvolt = <0xd7168>;
+			opp-microvolt = <0xcae18>;
 		};
 
 		opp07 {
 			opp-hz = <0x00 0x6590fa00>;
-			opp-microvolt = <0xde698>;
+			opp-microvolt = <0xd2348>;
+		};
+
+		opp08 {
+			opp-hz = <0x00 0x6b49d200>;
+			opp-microvolt = <0xef808>;
 		};
 	};
 
@@ -3638,42 +3643,42 @@
 
 		opp00 {
 			opp-hz = <0x00 0x1dcd6500>;
-			opp-microvolt = <0xc11d8>;
+			opp-microvolt = <0xb7598>;
 		};
 
 		opp01 {
 			opp-hz = <0x00 0x27c19cc0>;
-			opp-microvolt = <0xc11d8>;
+			opp-microvolt = <0xb7598>;
 		};
 
 		opp02 {
 			opp-hz = <0x00 0x3b9aca00>;
-			opp-microvolt = <0xc5ff8>;
+			opp-microvolt = <0xbc3b8>;
 		};
 
 		opp03 {
 			opp-hz = <0x00 0x47868c00>;
-			opp-microvolt = <0xc5ff8>;
+			opp-microvolt = <0xbc3b8>;
 		};
 
 		opp04 {
 			opp-hz = <0x00 0x5353c980>;
-			opp-microvolt = <0xcae18>;
+			opp-microvolt = <0xc11d8>;
 		};
 
 		opp05 {
 			opp-hz = <0x00 0x5a1f4a00>;
-			opp-microvolt = <0xd4a58>;
+			opp-microvolt = <0xc8708>;
 		};
 
 		opp06 {
 			opp-hz = <0x00 0x5fd82200>;
-			opp-microvolt = <0xde698>;
+			opp-microvolt = <0xd2348>;
 		};
 
 		opp07 {
 			opp-hz = <0x00 0x6590fa00>;
-			opp-microvolt = <0xe5bc8>;
+			opp-microvolt = <0xd9878>;
 		};
 	};
 
