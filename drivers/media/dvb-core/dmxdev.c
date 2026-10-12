@@ -29,6 +29,7 @@
 #include <linux/ioctl.h>
 #include <linux/wait.h>
 #include <asm/uaccess.h>
+#include <media/dmxdev_audio.h>
 #include "dmxdev.h"
 
 static int debug;
@@ -37,6 +38,39 @@ module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off debugging (default:off).");
 
 #define dprintk	if (debug) printk
+
+/* audio decoder outside the demux driver */
+static const struct dmxdev_audio_sink *dmxdev_audio_sink;
+
+int dmxdev_audio_sink_register(const struct dmxdev_audio_sink *sink)
+{
+	if (dmxdev_audio_sink)
+		return -EBUSY;
+	WRITE_ONCE(dmxdev_audio_sink, sink);
+	return 0;
+}
+EXPORT_SYMBOL(dmxdev_audio_sink_register);
+
+/* audio decoder index of a PES filter, -1 if it does not feed one there */
+static int dvb_dmxdev_audio_index(struct dmxdev_filter *filter)
+{
+	if (filter->params.pes.output != DMX_OUT_DECODER ||
+	    !READ_ONCE(dmxdev_audio_sink))
+		return -1;
+
+	switch (filter->params.pes.pes_type) {
+	case DMX_PES_AUDIO0:
+		return 0;
+	case DMX_PES_AUDIO1:
+		return 1;
+	case DMX_PES_AUDIO2:
+		return 2;
+	case DMX_PES_AUDIO3:
+		return 3;
+	default:
+		return -1;
+	}
+}
 
 static int dvb_dmxdev_buffer_write(struct dvb_ringbuffer *buf,
 				   const u8 *src, size_t len)
@@ -399,6 +433,12 @@ static int dvb_dmxdev_ts_callback(const u8 *buffer1, size_t buffer1_len,
 
 	spin_lock(&dmxdevfilter->dev->lock);
 	if (dmxdevfilter->params.pes.output == DMX_OUT_DECODER) {
+		int index = dvb_dmxdev_audio_index(dmxdevfilter);
+
+		if (index >= 0 && dmxdevfilter->state == DMXDEV_STATE_GO)
+			dmxdev_audio_sink->write(dmxdev_audio_sink->priv, index,
+						 buffer1, buffer1_len,
+						 buffer2, buffer2_len);
 		spin_unlock(&dmxdevfilter->dev->lock);
 		return 0;
 	}
@@ -521,6 +561,9 @@ static int dvb_dmxdev_filter_stop(struct dmxdev_filter *dmxdevfilter)
 			demux->release_ts_feed(demux, feed->ts);
 			feed->ts = NULL;
 		}
+		if (dvb_dmxdev_audio_index(dmxdevfilter) >= 0)
+			dmxdev_audio_sink->stop(dmxdev_audio_sink->priv,
+					dvb_dmxdev_audio_index(dmxdevfilter));
 		break;
 	default:
 		if (dmxdevfilter->state == DMXDEV_STATE_ALLOCATED)
@@ -586,6 +629,9 @@ static int dvb_dmxdev_start_feed(struct dmxdev *dmxdev,
 		ts_type |= TS_PACKET | TS_DEMUX;
 	else if (otype == DMX_OUT_TAP)
 		ts_type |= TS_PACKET | TS_DEMUX | TS_PAYLOAD_ONLY;
+	else if (dvb_dmxdev_audio_index(filter) >= 0)
+		/* the packets go to the audio decoder, descrambled as for a tap */
+		ts_type |= TS_PACKET | TS_DEMUX;
 
 	ret = dmxdev->demux->allocate_ts_feed(dmxdev->demux, &feed->ts,
 					      dvb_dmxdev_ts_callback);
@@ -600,6 +646,10 @@ static int dvb_dmxdev_start_feed(struct dmxdev *dmxdev,
 		dmxdev->demux->release_ts_feed(dmxdev->demux, tsfeed);
 		return ret;
 	}
+
+	if (dvb_dmxdev_audio_index(filter) >= 0)
+		dmxdev_audio_sink->start(dmxdev_audio_sink->priv,
+					 dvb_dmxdev_audio_index(filter));
 
 	ret = tsfeed->start_filtering(tsfeed);
 	if (ret < 0) {
