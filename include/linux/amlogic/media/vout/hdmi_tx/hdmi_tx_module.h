@@ -471,6 +471,8 @@ struct hdmitx_dev {
  * sources.
  */
 	unsigned char hdmi_audio_off_flag;
+	int hdr10_support; /* 0: no support, 1: force yes, 2: by EDID */
+	int hlg_support; /* 0: no support, 1: force yes, 2: by EDID */
 	enum hdmi_hdr_transfer hdr_transfer_feature;
 	enum hdmi_hdr_color hdr_color_feature;
 	/* 0: sdr 1:standard HDR 2:non standard 3:HLG*/
@@ -933,4 +935,19 @@ bool hdmitx_hdr10p_en(void);
 bool LGAVIErrorTV(struct rx_cap *prxcap);
 bool hdmitx_find_vendor(struct hdmitx_dev *hdev);
 int hdmitx_uboot_already_display(int type);
+
+static inline int hdmitx_hdr10_cap(struct hdmitx_dev *hdev)
+{
+	if (hdev->hdr10_support == 0 || hdev->hdr10_support == 1)
+		return hdev->hdr10_support;
+	return hdev->rxcap.hdr_sup_eotf_smpte_st_2084;
+}
+
+static inline int hdmitx_hlg_cap(struct hdmitx_dev *hdev)
+{
+	if (hdev->hlg_support == 0 || hdev->hlg_support == 1)
+		return hdev->hlg_support;
+	return hdev->rxcap.hdr_sup_eotf_hlg;
+}
+
 #endif

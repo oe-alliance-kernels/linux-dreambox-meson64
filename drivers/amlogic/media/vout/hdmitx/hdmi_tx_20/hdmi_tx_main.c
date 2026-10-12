@@ -517,8 +517,8 @@ static void hdrinfo_to_vinfo(struct vinfo_s *info, struct hdmitx_dev *hdev)
 	/*static hdr*/
 	info->hdr_info.hdr_support = (hdev->rxcap.hdr_sup_eotf_sdr << 0)
 			| (hdev->rxcap.hdr_sup_eotf_hdr << 1)
-			| (hdev->rxcap.hdr_sup_eotf_smpte_st_2084 << 2)
-			| (hdev->rxcap.hdr_sup_eotf_hlg << 3);
+			| (hdmitx_hdr10_cap(hdev) << 2)
+			| (hdmitx_hlg_cap(hdev) << 3);
 	memcpy(info->hdr_info.rawdata, hdev->rxcap.hdr_rawdata, 7);
 	/*dynamic hdr*/
 	for (i = 0; i < 4; i++) {
@@ -576,8 +576,6 @@ static void edidinfo_attach_to_vinfo(struct hdmitx_dev *hdev)
 		return;
 
 	hdrinfo_to_vinfo(info, hdev);
-	if (hdev->para->cd == COLORDEPTH_24B)
-		memset(&info->hdr_info, 0, sizeof(struct hdr_info));
 	rxlatency_to_vinfo(info, &hdev->rxcap);
 	hdmitx_vdev.dv_info = &hdmitx_device.rxcap.dv_info;
 }
@@ -594,6 +592,9 @@ static void edidinfo_detach_to_vinfo(struct hdmitx_dev *hdev)
 	edidinfo_attach_to_vinfo(hdev);
 	hdmitx_vdev.dv_info = &dv_dummy;
 }
+
+static unsigned long prev_mode_change_time;
+static unsigned long prev_drm_packet_change_timed;
 
 static int set_disp_mode_auto(void)
 {
@@ -726,6 +727,8 @@ static int set_disp_mode_auto(void)
 	else {
 	/* nothing */
 	}
+
+	prev_mode_change_time = jiffies;
 
 	hdmitx_pre_display_init();
 
@@ -1404,17 +1407,31 @@ EXPORT_SYMBOL(hdmitx_video_mute_op);
  */
 static void hdmitx_sdr_hdr_uevent(struct hdmitx_dev *hdev)
 {
+	int check_mode = 0;
+
 	if ((hdev->hdmi_last_hdr_mode == 0) &&
 		(hdev->hdmi_current_hdr_mode != 0)) {
 		/* SDR -> HDR*/
 		extcon_set_state_sync(hdmitx_extcon_hdr, EXTCON_DISP_HDMI, 1);
+		check_mode = 1;
 	} else if ((hdev->hdmi_last_hdr_mode != 0) &&
 			(hdev->hdmi_current_hdr_mode == 0)) {
 		/* HDR -> SDR*/
 		extcon_set_state_sync(hdmitx_extcon_hdr, EXTCON_DISP_HDMI, 0);
+		check_mode = 1;
 	}
 	/* NOTE: for HDR <-> HLG, also need update last mode */
 	hdev->hdmi_last_hdr_mode = hdev->hdmi_current_hdr_mode;
+
+	/* 2160p: set the mode again when the DRM packet changed after it */
+	if (check_mode) {
+		const struct vinfo_s *info = hdmitx_get_current_vinfo();
+
+		if (info && info->name && strstr(info->name, "2160") &&
+		    time_before(prev_mode_change_time,
+				prev_drm_packet_change_timed))
+			set_disp_mode_auto();
+	}
 }
 
 /* frame duration(us) for one frame */
@@ -1531,6 +1548,8 @@ static void hdmitx_set_drm_pkt(struct master_display_info_s *data)
 		hdr_status_pos = 0;
 	}
 
+	prev_drm_packet_change_timed = jiffies;
+
 	/*
 	 *hdr_color_feature: bit 23-16: color_primaries
 	 *	1:bt709  0x9:bt2020
@@ -1581,10 +1600,10 @@ static void hdmitx_set_drm_pkt(struct master_display_info_s *data)
 		}
 	}
 
-	if ((!data) || (!(hdev->rxcap.hdr_sup_eotf_smpte_st_2084) &&
+	if ((!data) || (!(hdmitx_hdr10_cap(hdev)) &&
 			!(hdev->rxcap.hdr_sup_eotf_hdr) &&
 			!(hdev->rxcap.hdr_sup_eotf_sdr) &&
-			!(hdev->rxcap.hdr_sup_eotf_hlg))) {
+			!(hdmitx_hlg_cap(hdev)))) {
 		DRM_HB[1] = 0;
 		DRM_HB[2] = 0;
 		DRM_DB[0] = 0;
@@ -1664,7 +1683,7 @@ static void hdmitx_set_drm_pkt(struct master_display_info_s *data)
 	hdev->hdmi_current_hdr_mode = 0;
 
 	/* SMPTE ST 2084 and (BT2020 or NON_STANDARD) */
-	if (hdev->rxcap.hdr_sup_eotf_smpte_st_2084) {
+	if (hdmitx_hdr10_cap(hdev)) {
 		if (hdev->hdr_transfer_feature == T_SMPTE_ST_2084 &&
 			hdev->hdr_color_feature == C_BT2020)
 			hdev->hdmi_current_hdr_mode = 1;
@@ -1674,7 +1693,7 @@ static void hdmitx_set_drm_pkt(struct master_display_info_s *data)
 	}
 
 	/*HLG and BT2020*/
-	if (hdev->rxcap.hdr_sup_eotf_hlg) {
+	if (hdmitx_hlg_cap(hdev)) {
 		if (hdev->hdr_color_feature == C_BT2020 &&
 			(hdev->hdr_transfer_feature == T_BT2020_10 ||
 			hdev->hdr_transfer_feature == T_HLG))
@@ -2509,6 +2528,24 @@ static ssize_t show_config(struct device *dev,
 	return pos;
 }
 
+static unsigned char init_audio_source;
+
+static ssize_t show_audio_source(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", init_audio_source);
+}
+
+static ssize_t store_audio_source(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (buf[0] >= '0' && buf[0] <= '2')
+		init_audio_source = buf[0] - '0';
+	return count;
+}
+
+static DEVICE_ATTR(audio_source, 0664, show_audio_source, store_audio_source);
+
 static ssize_t store_config(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -2557,12 +2594,63 @@ static ssize_t store_config(struct device *dev,
 	} else if (strncmp(buf, "sdr", 3) == 0) {
 		data.features = 0x00010100;
 		hdmitx_set_drm_pkt(&data);
+	} else if (strncmp(buf, "audio_", 6) == 0) {
+		if (strncmp(buf + 6, "off", 3) == 0) {
+			hdmitx_device.tx_aud_cfg = 0;
+			hdmitx_device.hwop.cntlconfig(&hdmitx_device,
+				CONF_AUDIO_MUTE_OP, AUDIO_MUTE);
+			pr_info("AUDIO configure off\n");
+		} else if (strncmp(buf + 6, "on", 2) == 0) {
+			hdmitx_device.tx_aud_cfg = 1;
+			hdmitx_device.hwop.cntlconfig(&hdmitx_device,
+				CONF_AUDIO_MUTE_OP, AUDIO_UNMUTE);
+			pr_info("AUDIO configure on\n");
+		} else if (strncmp(buf + 6, "auto", 4) == 0) {
+			hdmitx_device.tx_aud_cfg = 2;
+			pr_info("AUDIO configure auto\n");
+		} else {
+			pr_info("AUDIO configure error\n");
+		}
 	} else if (strncmp(buf, "hdr", 3) == 0) {
-		data.features = 0x00091000;
-		hdmitx_set_drm_pkt(&data);
+		if (count > 6) {
+			int *sup = &hdmitx_device.hdr10_support;
+			int val = -1;
+
+			if (strncmp(buf + 3, "10-2", 4) == 0)
+				val = 2;
+			else if (strncmp(buf + 3, "10-0", 4) == 0)
+				val = 0;
+			else if (strncmp(buf + 3, "10-1", 4) == 0)
+				val = 1;
+			if (val >= 0 && *sup != val) {
+				*sup = val;
+				pr_info("HDR10 support %d\n", val);
+				set_disp_mode_auto();
+			}
+		} else {
+			data.features = 0x00091000;
+			hdmitx_set_drm_pkt(&data);
+		}
 	} else if (strncmp(buf, "hlg", 3) == 0) {
-		data.features = 0x00091200;
-		hdmitx_set_drm_pkt(&data);
+		if (count > 4) {
+			int *sup = &hdmitx_device.hlg_support;
+			int val = -1;
+
+			if (strncmp(buf + 3, "-2", 2) == 0)
+				val = 2;
+			else if (strncmp(buf + 3, "-0", 2) == 0)
+				val = 0;
+			else if (strncmp(buf + 3, "-1", 2) == 0)
+				val = 1;
+			if (val >= 0 && *sup != val) {
+				*sup = val;
+				pr_info("HLG support %d\n", val);
+				set_disp_mode_auto();
+			}
+		} else {
+			data.features = 0x00091200;
+			hdmitx_set_drm_pkt(&data);
+		}
 	} else if (strncmp(buf, "vsif", 4) == 0)
 		hdmitx_set_vsif_pkt(buf[4] - '0', buf[5] == '1', NULL, true);
 	else if (strncmp(buf, "emp", 3) == 0) {
@@ -2916,7 +3004,8 @@ static void _show_pcm_ch(struct rx_cap *prxcap, int i,
 			*ppos += snprintf(buf + *ppos, PAGE_SIZE, "%s/",
 				aud_sample_size[j+1]);
 	}
-	*ppos += snprintf(buf + *ppos - 1, PAGE_SIZE, " bit\n");
+	/* replaces the trailing '/' */
+	*ppos += snprintf(buf + *ppos - 1, PAGE_SIZE, " bit\n") - 1;
 }
 
 /**/
@@ -2949,7 +3038,8 @@ static ssize_t show_aud_cap(struct device *dev,
 				pos += snprintf(buf + pos, PAGE_SIZE, "%s/",
 					aud_sampling_frequency[j+1]);
 		}
-		pos += snprintf(buf + pos - 1, PAGE_SIZE, " kHz, ");
+		/* replaces the trailing '/' */
+		pos += snprintf(buf + pos - 1, PAGE_SIZE, " kHz, ") - 1;
 		switch (prxcap->RxAudioCap[i].audio_format_code) {
 		case CT_PCM:
 			_show_pcm_ch(prxcap, i, &pos, buf);
@@ -3336,9 +3426,9 @@ static ssize_t show_hdr_cap(struct device *dev,
 	pos += snprintf(buf + pos, PAGE_SIZE, "        Traditional HDR: %d\n",
 		prxcap->hdr_sup_eotf_hdr);
 	pos += snprintf(buf + pos, PAGE_SIZE, "        SMPTE ST 2084: %d\n",
-		prxcap->hdr_sup_eotf_smpte_st_2084);
+		hdmitx_hdr10_cap(&hdmitx_device));
 	pos += snprintf(buf + pos, PAGE_SIZE, "        Hybrif Log-Gamma: %d\n",
-		prxcap->hdr_sup_eotf_hlg);
+		hdmitx_hlg_cap(&hdmitx_device));
 	pos += snprintf(buf + pos, PAGE_SIZE, "    Supported SMD type1: %d\n",
 		prxcap->hdr_sup_SMD_type1);
 	pos += snprintf(buf + pos, PAGE_SIZE, "    Luminance Data\n");
@@ -5654,6 +5744,12 @@ static void hdmitx_hpd_plugin_handler(struct work_struct *work)
 	hdmitx_set_uevent(HDMITX_HPD_EVENT, 1);
 	extcon_set_state_sync(hdmitx_extcon_audio, EXTCON_DISP_HDMI, 1);
 	mutex_unlock(&setclk_mutex);
+	/* without systemcontrol nobody sets the mode again after plugout
+	 * turned the output off
+	 */
+	if (!hdev->systemcontrol_on && !hdev->ready &&
+	    info && info->mode == VMODE_HDMI)
+		set_disp_mode_auto();
 	/* Should be started at end of output */
 	cancel_delayed_work(&hdev->work_cedst);
 	if (hdev->cedst_policy)
@@ -6476,6 +6572,9 @@ static int amhdmitx_probe(struct platform_device *pdev)
 		return r;
 	}
 	hdmitx_device.hdtx_dev = dev;
+	hdmitx_device.hlg_support = 2;
+	hdmitx_device.hdr10_support = 2;
+	ret = device_create_file(dev, &dev_attr_audio_source);
 	ret = device_create_file(dev, &dev_attr_disp_mode);
 	ret = device_create_file(dev, &dev_attr_attr);
 	ret = device_create_file(dev, &dev_attr_aud_mode);
@@ -6607,6 +6706,7 @@ static int amhdmitx_remove(struct platform_device *pdev)
 #endif
 
 	/* Remove the cdev */
+	device_remove_file(dev, &dev_attr_audio_source);
 	device_remove_file(dev, &dev_attr_disp_mode);
 	device_remove_file(dev, &dev_attr_attr);
 	device_remove_file(dev, &dev_attr_aud_mode);
