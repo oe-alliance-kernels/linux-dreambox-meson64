@@ -29,8 +29,8 @@
 
 struct meson_phys_data {
 	int handle;
-	unsigned int phys_addr;
-	unsigned int size;
+	unsigned long phys_addr;
+	size_t size;
 };
 
 

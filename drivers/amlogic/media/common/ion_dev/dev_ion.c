@@ -156,8 +156,8 @@ static int meson_ion_get_phys(
 		return ret;
 	}
 
-	data.phys_addr = (unsigned int)addr;
-	data.size = (unsigned int)len;
+	data.phys_addr = addr;
+	data.size = len;
 	if (copy_to_user((void __user *)arg, &data,
 		sizeof(struct meson_phys_data))) {
 		return -EFAULT;
