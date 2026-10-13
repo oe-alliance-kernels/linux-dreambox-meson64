@@ -2276,7 +2276,7 @@ static inline bool vpts_expire(struct vframe_s *cur_vf,
 		}
 	}
 
-	if ((trickmode_i == 1) || ((trickmode_fffb == 1))) {
+	if ((trickmode_i & 1) || ((trickmode_fffb == 1))) {
 		if (((atomic_read(&trickmode_framedone) == 0)
 		     || (trickmode_i == 1)) && (!to_notify_trick_wait)
 		    && (trickmode_duration_count <= 0)) {
@@ -2287,6 +2287,18 @@ static inline bool vpts_expire(struct vframe_s *cur_vf,
 			else
 				return true;
 #else
+			/* bit 1: let the video PTS follow the shown frames */
+			if (trickmode_i & 2) {
+				if (toggled_cnt)
+					return false;
+				if (next_vf->pts != 0) {
+					timestamp_vpts_set(next_vf->pts);
+					last_frame_duration = next_vf->duration;
+				} else if (last_frame_duration) {
+					timestamp_vpts_inc(DUR2PTS
+						(last_frame_duration));
+				}
+			}
 			return true;
 #endif
 		} else
