@@ -347,7 +347,12 @@ char *vf_get_receiver_name(const char *provider_name)
 	int i;
 	char *receiver_name = NULL;
 
-	for (i = 0; i < vfm_map_num; i++) {
+	/*
+	 * The newest map of a provider wins: maps of decoders that stopped stay
+	 * behind, and a decoder that gets the same instance number later can
+	 * bring a map of its own.
+	 */
+	for (i = vfm_map_num - 1; i >= 0; i--) {
 		if (vfm_map[i] && vfm_map[i]->valid && vfm_map[i]->active) {
 			receiver_name = vf_get_receiver_name_inmap(i,
 				provider_name);
