@@ -2795,6 +2795,7 @@ int osd_set_scan_mode(u32 index)
 	if (vinfo && (strcmp(vinfo->name, "invalid") &&
 		strcmp(vinfo->name, "null"))) {
 		osd_hw.scale_workaround = 0;
+		osd_hw.sc_filter_workaround[index] = 0;
 		if (osd_auto_adjust_filter) {
 			osd_h_filter_mode = 1;
 			osd_v_filter_mode = 1;
@@ -5713,8 +5714,9 @@ static void osd_update_disp_freescale_enable(u32 index)
 		VSYNCOSD_WR_MPEG_REG(osd_reg->osd_sco_v_start_end, data32);
 	}
 	if (osd_hw.sc_filter_workaround[index] == SC_DOUBLE) {
-		vsc_ini_rpt_p0_num = 2;
-		hsc_ini_rpt_p0_num = 2;
+		/* one line more than the bank default, 1 for the 2 tap bank */
+		vsc_ini_rpt_p0_num = vf_bank_len / 2;
+		hsc_ini_rpt_p0_num = hf_bank_len / 2;
 	}
 	data32 = 0x0;
 	if (osd_hw.free_scale[index].v_enable) {
