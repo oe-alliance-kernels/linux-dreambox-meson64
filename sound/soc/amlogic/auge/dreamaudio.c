@@ -45,8 +45,15 @@
 #define PLAYER_LEAD	(2 * 90000)
 #define PLAYER_JUMP	(10 * 90000)
 #define PLAYER_POLL_MS	20
-/* one device per audio decoder of the demux API, DMX_PES_AUDIO0..3 */
-#define DEVICES		4
+/* one device per audio decoder of the demux API, DMX_PES_AUDIO0..1 */
+#define DEVICES		2
+/*
+ * dreamaudio2..5 belong to the mosaic decoders video2..5. Only the window
+ * in focus plays its audio, so they all lead to the first device, and so do
+ * DMX_PES_AUDIO2..3.
+ */
+#define MOSAIC_FIRST	2
+#define MOSAIC_DEVICES	4
 
 struct dreamaudio {
 	struct miscdevice misc;
@@ -68,6 +75,9 @@ struct dreamaudio {
 	u32 mem_last_pts;
 	/* wakes a player held back by its lead */
 	struct timer_list room_timer;
+	/* PTS of the newest PES from the demux, before the service reads it */
+	bool input_valid;
+	u32 input_pts;
 };
 
 struct dreamaudio_file {
@@ -81,6 +91,19 @@ struct dreamaudio_file {
 };
 
 static struct dreamaudio dreamaudio[DEVICES];
+
+struct dreamaudio_alias {
+	struct miscdevice misc;
+	char name[16];
+	char nodename[32];
+};
+
+static struct dreamaudio_alias dreamaudio_alias[MOSAIC_DEVICES];
+
+static struct dreamaudio *dreamaudio_index(int index)
+{
+	return &dreamaudio[index < DEVICES ? index : 0];
+}
 
 /* caller holds dev->lock */
 static void dreamaudio_changed(struct dreamaudio *dev)
@@ -101,11 +124,12 @@ static void dreamaudio_clear(struct dreamaudio *dev)
 
 static void dreamaudio_sink_start(void *priv, int index)
 {
-	struct dreamaudio *dev = &dreamaudio[index];
+	struct dreamaudio *dev = dreamaudio_index(index);
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->lock, flags);
 	dreamaudio_clear(dev);
+	dev->input_valid = false;
 	spin_unlock_irqrestore(&dev->lock, flags);
 }
 
@@ -126,10 +150,59 @@ static bool dreamaudio_pes_pts(const u8 *ts, u32 *pts)
 	return true;
 }
 
+/* caller holds dev->lock: note the PTS of a PES starting in the packet */
+static void dreamaudio_input_packet(struct dreamaudio *dev, const u8 *ts)
+{
+	if (dreamaudio_pes_pts(ts, &dev->input_pts))
+		dev->input_valid = true;
+}
+
+/* caller holds dev->lock: the packets of a write, split by the ring */
+static void dreamaudio_input(struct dreamaudio *dev, const u8 *buf1,
+			     size_t len1, const u8 *buf2, size_t len2)
+{
+	u8 ts[TS_SIZE];
+	size_t pos, n;
+
+	for (pos = 0; pos + TS_SIZE <= len1 + len2; pos += TS_SIZE) {
+		if (pos + TS_SIZE <= len1) {
+			dreamaudio_input_packet(dev, buf1 + pos);
+		} else if (pos >= len1) {
+			dreamaudio_input_packet(dev, buf2 + pos - len1);
+		} else {
+			n = len1 - pos;
+			memcpy(ts, buf1 + pos, n);
+			memcpy(ts + n, buf2, TS_SIZE - n);
+			dreamaudio_input_packet(dev, ts);
+		}
+	}
+}
+
+/*
+ * PTS of the newest audio the demux delivered to an audio decoder. The
+ * mosaic paces the window playing the audio by it: the audio of a stream
+ * comes later than its video, and the service reads it only as it plays.
+ */
+int dreamaudio_input_pts(int index, u32 *pts)
+{
+	struct dreamaudio *dev = dreamaudio_index(index);
+	unsigned long flags;
+	int ret = -ENODATA;
+
+	spin_lock_irqsave(&dev->lock, flags);
+	if (dev->input_valid) {
+		*pts = dev->input_pts;
+		ret = 0;
+	}
+	spin_unlock_irqrestore(&dev->lock, flags);
+	return ret;
+}
+EXPORT_SYMBOL(dreamaudio_input_pts);
+
 static void dreamaudio_sink_write(void *priv, int index, const u8 *buf1,
 				  size_t len1, const u8 *buf2, size_t len2)
 {
-	struct dreamaudio *dev = &dreamaudio[index];
+	struct dreamaudio *dev = dreamaudio_index(index);
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->lock, flags);
@@ -137,6 +210,7 @@ static void dreamaudio_sink_write(void *priv, int index, const u8 *buf1,
 		spin_unlock_irqrestore(&dev->lock, flags);
 		return;
 	}
+	dreamaudio_input(dev, buf1, len1, buf2, len2);
 	if (kfifo_avail(&dev->fifo) < len1 + len2) {
 		dev->state.overflows += (len1 + len2) / TS_SIZE;
 	} else {
@@ -158,6 +232,9 @@ static const struct dmxdev_audio_sink dreamaudio_sink = {
 	.stop = dreamaudio_sink_stop,
 };
 
+/* the same operations, told apart to open the first device */
+static const struct file_operations dreamaudio_alias_fops;
+
 static int dreamaudio_open(struct inode *inode, struct file *file)
 {
 	struct miscdevice *misc = file->private_data;
@@ -165,7 +242,10 @@ static int dreamaudio_open(struct inode *inode, struct file *file)
 
 	if (!f)
 		return -ENOMEM;
-	f->dev = container_of(misc, struct dreamaudio, misc);
+	if (misc->fops == &dreamaudio_alias_fops)
+		f->dev = &dreamaudio[0];
+	else
+		f->dev = container_of(misc, struct dreamaudio, misc);
 	mutex_init(&f->read_lock);
 	file->private_data = f;
 
@@ -667,6 +747,18 @@ static const struct file_operations dreamaudio_fops = {
 	.llseek = no_llseek,
 };
 
+static const struct file_operations dreamaudio_alias_fops = {
+	.owner = THIS_MODULE,
+	.open = dreamaudio_open,
+	.release = dreamaudio_release,
+	.read = dreamaudio_read,
+	.write = dreamaudio_write,
+	.poll = dreamaudio_poll,
+	.unlocked_ioctl = dreamaudio_ioctl,
+	.compat_ioctl = dreamaudio_ioctl,
+	.llseek = no_llseek,
+};
+
 static int __init dreamaudio_add(struct dreamaudio *dev, int index)
 {
 	void *buf;
@@ -706,12 +798,32 @@ err:
 	return ret;
 }
 
+static int __init dreamaudio_alias_add(struct dreamaudio_alias *alias,
+				       int index)
+{
+	snprintf(alias->name, sizeof(alias->name), "dreamaudio%d", index);
+	snprintf(alias->nodename, sizeof(alias->nodename),
+		 "dvb/adapter0/dreamaudio%d", index);
+	alias->misc.minor = MISC_DYNAMIC_MINOR;
+	alias->misc.name = alias->name;
+	alias->misc.nodename = alias->nodename;
+	alias->misc.mode = 0660;
+	alias->misc.fops = &dreamaudio_alias_fops;
+	return misc_register(&alias->misc);
+}
+
 static int __init dreamaudio_init(void)
 {
 	int i, ret;
 
 	for (i = 0; i < DEVICES; i++) {
 		ret = dreamaudio_add(&dreamaudio[i], i);
+		if (ret)
+			return ret;
+	}
+	for (i = 0; i < MOSAIC_DEVICES; i++) {
+		ret = dreamaudio_alias_add(&dreamaudio_alias[i],
+					   MOSAIC_FIRST + i);
 		if (ret)
 			return ret;
 	}

@@ -1903,6 +1903,7 @@ int aml_spdif_get_pts(u64 *pts)
 
 	return -ENODATA;
 }
+EXPORT_SYMBOL(aml_spdif_get_pts);
 
 /* gate timer: the first frame is due */
 static void aml_spdif_avsync_start(void *priv)
