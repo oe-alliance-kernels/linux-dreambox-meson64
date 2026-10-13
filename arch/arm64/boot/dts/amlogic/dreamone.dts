@@ -2211,6 +2211,15 @@
 		phandle = <0xf4>;
 	};
 
+	amlvideo2 {
+		compatible = "amlogic, amlvideo2";
+		dev_name = "amlvideo2";
+		status = "okay";
+		amlvideo2_id = <0x01>;
+		cma_mode = <0x01>;
+		support_4k = <0x01>;
+	};
+
 	vdin0: vdin0 {
 		compatible = "amlogic, vdin";
 		dev_name = "vdin0";
@@ -2228,7 +2237,7 @@
 	vdin1: vdin1 {
 		compatible = "amlogic, vdin";
 		dev_name = "vdin1";
-		status = "disabled";
+		status = "okay";
 		reserve-iomap = "true";
 		flag_cma = <0x00>;
 		interrupts = <0x00 0x55 0x01>;
@@ -3036,10 +3045,10 @@
 		};
 
 		vdin1_cma_reserved: linux,vdin1_cma {
-			status = "disable";
+			status = "okay";
 			compatible = "shared-dma-pool";
 			reusable;
-			size = <0x00 0x1400000>;
+			size = <0x00 0x8000000>;
 			alignment = <0x00 0x400000>;
 			phandle = <0x3d>;
 		};
