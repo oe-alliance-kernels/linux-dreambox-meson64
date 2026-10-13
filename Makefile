@@ -1115,7 +1115,7 @@ $(vmlinux-dirs): prepare scripts
 	$(Q)$(MAKE) $(build)=$@
 
 define filechk_kernel.release
-	echo "$(KERNELVERSION)"
+	echo "$(VERSION).$(PATCHLEVEL)"
 endef
 
 define filechk_kernel.release_full
