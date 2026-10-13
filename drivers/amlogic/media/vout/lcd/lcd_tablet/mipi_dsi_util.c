@@ -909,26 +909,47 @@ static int wait_bta_ack(void)
 }
 
 /* *************************************************************
- * Function: wait_cmd_fifo_empty
+ * Function: wait_cmd_fifo_space
  * Poll to check if the generic command fifo is empty
  */
-static int wait_cmd_fifo_empty(void)
+static inline int wait_cmd_fifo_space(void)
 {
 	unsigned int cmd_status;
 	int i = CMD_TIMEOUT_CNT;
 
-	do {
+	while (1) {
+		cmd_status = dsi_host_getb(MIPI_DSI_DWC_CMD_PKT_STATUS_OS,
+				BIT_GEN_CMD_FULL, 1);
+		if (cmd_status == 0 || i == 0)
+			break;
 		udelay(10);
 		i--;
-		cmd_status = dsi_host_getb(MIPI_DSI_DWC_CMD_PKT_STATUS_OS,
-				BIT_GEN_CMD_EMPTY, 1);
-	} while ((cmd_status != 0x1) && (i > 0));
-
-	if (cmd_status == 0) {
-		cmd_status = dsi_host_read(MIPI_DSI_DWC_CMD_PKT_STATUS_OS);
-		print_mipi_cmd_status(i, cmd_status);
-		return -1;
 	}
+
+	print_mipi_cmd_status(i, cmd_status);
+
+	return 0;
+}
+
+/* *************************************************************
+ * Function: wait_pld_fifo_space
+ * Poll to check if the generic command fifo is empty
+ */
+static inline int wait_pld_fifo_space(void)
+{
+	unsigned int cmd_status;
+	int i = CMD_TIMEOUT_CNT;
+
+	while (1) {
+		cmd_status = dsi_host_getb(MIPI_DSI_DWC_CMD_PKT_STATUS_OS,
+				BIT_GEN_PLD_W_FULL, 1);
+		if (cmd_status == 0 || i == 0)
+			break;
+		udelay(10);
+		i--;
+	}
+
+	print_mipi_cmd_status(i, cmd_status);
 
 	return 0;
 }
@@ -992,6 +1013,8 @@ static void dsi_set_max_return_pkt_size(struct dsi_cmd_request_s *req)
 {
 	unsigned int d_para[2];
 
+	wait_cmd_fifo_space();
+
 	d_para[0] = (unsigned int)(req->payload[2] & 0xff);
 	d_para[1] = (unsigned int)(req->payload[3] & 0xff);
 	dsi_rx_n = (unsigned short)((d_para[1] << 8) | d_para[0]);
@@ -1002,8 +1025,6 @@ static void dsi_set_max_return_pkt_size(struct dsi_cmd_request_s *req)
 		(DT_SET_MAX_RET_PKT_SIZE << BIT_GEN_DT)));
 	if (req->req_ack == MIPI_DSI_DCS_REQ_ACK)
 		wait_bta_ack();
-	else if (req->req_ack == MIPI_DSI_DCS_NO_ACK)
-		wait_cmd_fifo_empty();
 }
 
 #ifdef DSI_CMD_READ_VALID
@@ -1120,6 +1141,8 @@ static int dsi_generic_write_short_packet(struct dsi_cmd_request_s *req)
 	unsigned int d_para[2];
 	int ret = 0;
 
+	wait_cmd_fifo_space();
+
 	switch (req->data_type) {
 	case DT_GEN_SHORT_WR_1:
 		d_para[0] = (req->pld_count == 0) ?
@@ -1146,8 +1169,6 @@ static int dsi_generic_write_short_packet(struct dsi_cmd_request_s *req)
 		(((unsigned int)req->data_type) << BIT_GEN_DT)));
 	if (req->req_ack == MIPI_DSI_DCS_REQ_ACK)
 		ret = wait_bta_ack();
-	else if (req->req_ack == MIPI_DSI_DCS_NO_ACK)
-		ret = wait_cmd_fifo_empty();
 
 	return ret;
 }
@@ -1162,6 +1183,8 @@ static int dsi_dcs_write_short_packet(struct dsi_cmd_request_s *req)
 	unsigned int d_command, d_para;
 	int ret = 0;
 
+	wait_cmd_fifo_space();
+
 	d_command = ((unsigned int)req->payload[2]) & 0xff;
 	d_para = (req->pld_count < 2) ?
 		0 : (((unsigned int)req->payload[3]) & 0xff);
@@ -1173,8 +1196,6 @@ static int dsi_dcs_write_short_packet(struct dsi_cmd_request_s *req)
 		(((unsigned int)req->data_type) << BIT_GEN_DT)));
 	if (req->req_ack == MIPI_DSI_DCS_REQ_ACK)
 		ret = wait_bta_ack();
-	else if (req->req_ack == MIPI_DSI_DCS_NO_ACK)
-		ret = wait_cmd_fifo_empty();
 
 	return ret;
 }
@@ -1187,7 +1208,6 @@ static int dsi_dcs_write_short_packet(struct dsi_cmd_request_s *req)
 static int dsi_write_long_packet(struct dsi_cmd_request_s *req)
 {
 	unsigned int d_command, payload_data, header_data;
-	unsigned int cmd_status;
 	unsigned int i, j, data_index, n, temp;
 	int ret = 0;
 
@@ -1208,20 +1228,8 @@ static int dsi_write_long_packet(struct dsi_cmd_request_s *req)
 				req->payload[data_index+(i*4)+j]) << (j*8));
 		}
 
-		/* Check the pld fifo status before write to it,
-		 * do not need check every word
-		 */
-		if ((i == (n/3)) || (i == (n/2))) {
-			j = CMD_TIMEOUT_CNT;
-			do {
-				udelay(10);
-				j--;
-				cmd_status = dsi_host_read(
-						MIPI_DSI_DWC_CMD_PKT_STATUS_OS);
-			} while ((((cmd_status >> BIT_GEN_PLD_W_FULL) & 0x1) ==
-				0x1) && (j > 0));
-			print_mipi_cmd_status(j, cmd_status);
-		}
+		wait_pld_fifo_space();
+
 		/* Use direct memory write to save time when in
 		 * WRITE_MEMORY_CONTINUE
 		 */
@@ -1234,14 +1242,8 @@ static int dsi_write_long_packet(struct dsi_cmd_request_s *req)
 		}
 	}
 
-	/* Check cmd fifo status before write to it */
-	j = CMD_TIMEOUT_CNT;
-	do {
-		udelay(10);
-		j--;
-		cmd_status = dsi_host_read(MIPI_DSI_DWC_CMD_PKT_STATUS_OS);
-	} while ((((cmd_status >> BIT_GEN_CMD_FULL) & 0x1) == 0x1) && (j > 0));
-	print_mipi_cmd_status(j, cmd_status);
+	wait_cmd_fifo_space();
+
 	/* Write Header Register */
 	/* include command */
 	header_data = ((((unsigned int)req->pld_count) << BIT_GEN_WC_LSBYTE) |
@@ -1250,8 +1252,6 @@ static int dsi_write_long_packet(struct dsi_cmd_request_s *req)
 	generic_if_wr(MIPI_DSI_DWC_GEN_HDR_OS, header_data);
 	if (req->req_ack == MIPI_DSI_DCS_REQ_ACK)
 		ret = wait_bta_ack();
-	else if (req->req_ack == MIPI_DSI_DCS_NO_ACK)
-		ret = wait_cmd_fifo_empty();
 
 	return ret;
 }
@@ -1391,7 +1391,7 @@ mipi_dsi_check_state_err:
 int dsi_write_cmd(unsigned char *payload)
 {
 	int i = 0, j = 0, step = 0;
-	unsigned char cmd_size;
+	unsigned short cmd_size;
 #ifdef DSI_CMD_READ_VALID
 	int k = 0, n = 0;
 	unsigned char rd_data[100];
@@ -1402,6 +1402,7 @@ int dsi_write_cmd(unsigned char *payload)
 	unsigned char vc_id = MIPI_DSI_VIRTUAL_CHAN_ID;
 	unsigned int req_ack = MIPI_DSI_DCS_ACK_TYPE;
 	int delay_ms, ret = 0;
+	int ext_len = 0;
 
 	/* mipi command(payload) */
 	/* format:  data_type, cmd_size, data.... */
@@ -1427,10 +1428,17 @@ int dsi_write_cmd(unsigned char *payload)
 			mdelay(payload[i+1]);
 		}
 
-		if (cmd_size == 0) {
+		if (cmd_size == 0 && ((payload[i] != DT_DCS_LONG_WR && payload[i] != DT_GEN_LONG_WR) || ext_len == 0)) {
 			i += (cmd_size + 2);
 			continue;
 		}
+
+		if (payload[i] == LCD_EXT_CMD_TYPE_XLEN) {
+			ext_len = cmd_size << 8;
+			i += 2;
+			continue;
+		}
+
 		if (i + 2 + cmd_size > DSI_CMD_SIZE_MAX) {
 			LCDERR("step %d: cmd_size out of support\n", step);
 			break;
@@ -1485,6 +1493,13 @@ int dsi_write_cmd(unsigned char *payload)
 				break;
 			case DT_DCS_LONG_WR:
 			case DT_GEN_LONG_WR:
+				dsi_cmd_req.pld_count |= ext_len;
+				cmd_size |= ext_len;
+				ext_len = 0;
+				if (i + 2 + cmd_size > DSI_CMD_SIZE_MAX) {
+					LCDERR("step %d: cmd_size_ext out of support\n", step);
+					break;
+				}
 				ret = dsi_write_long_packet(&dsi_cmd_req);
 				break;
 			case DT_TURN_ON:
