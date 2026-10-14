@@ -1609,7 +1609,11 @@ int ge2d_context_config_ex(struct ge2d_context_s *context,
 			ge2d_log_dbg("ge2d error: src2: alloc, out of range\n");
 			return -1;
 		}
-		if (ge2d_config->src2_planes[0].addr ==
+		/* the canvas mode keeps the canvas of each role in the
+		 * context: a shared address needs its own canvas there too
+		 */
+		if (ge2d_meson_dev.canvas_status &&
+		    ge2d_config->src2_planes[0].addr ==
 				ge2d_config->src_planes[0].addr) {
 			ge2d_config->src2_para.canvas_index =
 				ge2d_config->src_para.canvas_index;
@@ -1687,7 +1691,11 @@ int ge2d_context_config_ex(struct ge2d_context_s *context,
 			ge2d_log_dbg("ge2d error: dst: alloc, out of range\n");
 			return -1;
 		}
-		if (ge2d_config->dst_planes[0].addr ==
+		/* the canvas mode keeps the canvas of each role in the
+		 * context: a shared address needs its own canvas there too
+		 */
+		if (ge2d_meson_dev.canvas_status &&
+		    ge2d_config->dst_planes[0].addr ==
 				ge2d_config->src_planes[0].addr) {
 			ge2d_config->dst_para.canvas_index =
 				ge2d_config->src_para.canvas_index;
@@ -1695,7 +1703,8 @@ int ge2d_context_config_ex(struct ge2d_context_s *context,
 			       sizeof(src_addr[MAX_PLANE]));
 			memcpy(dst_stride, src_stride,
 			       sizeof(src_stride[MAX_PLANE]));
-		} else if (ge2d_config->dst_planes[0].addr ==
+		} else if (ge2d_meson_dev.canvas_status &&
+			   ge2d_config->dst_planes[0].addr ==
 				ge2d_config->src2_planes[0].addr) {
 			ge2d_config->dst_para.canvas_index =
 				ge2d_config->src2_para.canvas_index;
