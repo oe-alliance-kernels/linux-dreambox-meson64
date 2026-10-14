@@ -626,7 +626,7 @@ static int ge2d_process_work_queue(struct ge2d_context_s *wq)
 		/* if block mode (cmd) */
 		if (block_mode) {
 			pitem->cmd.wait_done_flag = 0;
-			wake_up_interruptible(&wq->cmd_complete);
+			wake_up(&wq->cmd_complete);
 		}
 		pitem = (struct ge2d_queue_item_s *)pos;
 
@@ -785,9 +785,11 @@ int ge2d_wq_add_work(struct ge2d_context_s *wq)
 		complete(&ge2d_manager.event.cmd_in_com);/* new cmd come in */
 	/* add block mode   if() */
 	if (pitem->cmd.wait_done_flag) {
-		wait_event_interruptible(wq->cmd_complete,
-				pitem->cmd.wait_done_flag == 0);
-		/* interruptible_sleep_on(&wq->cmd_complete); */
+		/* a signal must not end the wait: the caller takes the
+		 * memory as written, the worker ends a hung command after 1 s
+		 */
+		wait_event_killable(wq->cmd_complete,
+				    pitem->cmd.wait_done_flag == 0);
 	}
 	return 0;
 error:
