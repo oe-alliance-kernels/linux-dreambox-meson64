@@ -34,6 +34,8 @@ u32 acc_pcrscr_dec;
 static s32 system_time_inc_adj;
 static u32 system_time;
 static u32 system_time_up;
+/* run by an external owner, the vsync does not advance it */
+static bool system_time_external;
 static u32 audio_pts_up;
 static u32 audio_pts_started;
 static u32 first_vpts;
@@ -398,7 +400,7 @@ EXPORT_SYMBOL(timestamp_firstapts_get);
 
 void timestamp_pcrscr_inc(s32 inc)
 {
-	if (system_time_up) {
+	if (system_time_up && !READ_ONCE(system_time_external)) {
 #ifdef MODIFY_TIMESTAMP_INC_WITH_PLL
 		inc = inc * (s32)timestamp_inc_factor / PLL_FACTOR;
 #endif
@@ -417,7 +419,7 @@ void timestamp_pcrscr_inc_scale(s32 inc, u32 base)
 		system_time_scale_base = base;
 	}
 
-	if (system_time_up) {
+	if (system_time_up && !READ_ONCE(system_time_external)) {
 		u32 r;
 
 		system_time +=
@@ -457,6 +459,15 @@ void timestamp_pcrscr_enable(u32 enable)
 	system_time_up = enable;
 }
 EXPORT_SYMBOL(timestamp_pcrscr_enable);
+
+/* An owner that sets the system clock itself keeps the vsync from
+ * advancing it in between: two clocks of slightly different rates
+ * would make it jump by a vsync now and then. */
+void timestamp_pcrscr_external(bool external)
+{
+	WRITE_ONCE(system_time_external, external);
+}
+EXPORT_SYMBOL(timestamp_pcrscr_external);
 
 u32 timestamp_pcrscr_enable_state(void)
 {

@@ -58,6 +58,8 @@ extern void timestamp_pcrscr_inc_scale(s32 inc, u32 base);
 
 extern void timestamp_pcrscr_enable(u32 enable);
 
+extern void timestamp_pcrscr_external(bool external);
+
 extern u32 timestamp_pcrscr_enable_state(void);
 
 extern void timestamp_pcrscr_set_adj(s32 inc);
