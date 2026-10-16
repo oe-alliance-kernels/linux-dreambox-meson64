@@ -30,6 +30,7 @@
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
 #include <linux/preempt.h>
+#include <linux/module.h>
 
 #include <asm/bug.h>
 #include <asm/cpufeature.h>
@@ -407,6 +408,28 @@ static bool is_el0_instruction_abort(unsigned int esr)
 	return ESR_ELx_EC(esr) == ESR_ELx_EC_IABT_LOW;
 }
 
+static bool is_meson64_text(unsigned long addr)
+{
+	struct module *mod;
+	bool ret;
+
+	preempt_disable();
+	mod = __module_text_address(addr);
+	ret = mod && !strcmp(mod->name, "meson64");
+	preempt_enable();
+	return ret;
+}
+
+/*
+ * The meson64 driver module copies to user space with memcpy (CI read);
+ * let its write faults on copy-on-write pages be handled as usual. The
+ * fault is in memcpy itself, so also check the caller.
+ */
+static bool is_meson64_module_access(struct pt_regs *regs)
+{
+	return is_meson64_text(regs->pc) || is_meson64_text(regs->regs[30]);
+}
+
 static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 				   struct pt_regs *regs)
 {
@@ -447,7 +470,8 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 		if (is_el1_instruction_abort(esr))
 			die("Attempting to execute userspace memory", regs, esr);
 
-		if (!search_exception_tables(regs->pc))
+		if (!search_exception_tables(regs->pc) &&
+		    !is_meson64_module_access(regs))
 			die("Accessing user space memory outside uaccess.h routines", regs, esr);
 	}
 
@@ -457,7 +481,8 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	 * we can bug out early if this is from code which shouldn't.
 	 */
 	if (!down_read_trylock(&mm->mmap_sem)) {
-		if (!user_mode(regs) && !search_exception_tables(regs->pc))
+		if (!user_mode(regs) && !search_exception_tables(regs->pc) &&
+		    !is_meson64_module_access(regs))
 			goto no_context;
 retry:
 		down_read(&mm->mmap_sem);
@@ -468,7 +493,8 @@ retry:
 		 */
 		might_sleep();
 #ifdef CONFIG_DEBUG_VM
-		if (!user_mode(regs) && !search_exception_tables(regs->pc))
+		if (!user_mode(regs) && !search_exception_tables(regs->pc) &&
+		    !is_meson64_module_access(regs))
 			goto no_context;
 #endif
 	}
