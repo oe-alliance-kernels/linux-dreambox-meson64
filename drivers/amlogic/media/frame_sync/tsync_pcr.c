@@ -628,7 +628,8 @@ void tsync_pcr_pcrscr_set(void)
 	if (cur_pcr && !(tsync_pcr_inited_flag & complete_init_flag)
 		&& (min_checkinpts != 0)) {
 		tsync_pcr_inited_flag |= TSYNC_PCR_INITCHECK_PCR;
-		if ((abs(cur_pcr - cur_checkin_vpts) >
+		/* a played recording checks in far ahead of the first picture */
+		if ((abs(cur_pcr - (first_vpts ? first_vpts : cur_checkin_vpts)) >
 			PLAY_PCR_INVALID_THRESHOLD) &&
 			cur_checkin_vpts != 0xffffffff) {
 			if (first_vpts != 0) {
@@ -1087,7 +1088,16 @@ static void tsync_process_discontinue(void)
 			tsync_vpts_discontinuity_margin()) {
 			pr_info("v_dis cur_checkin_vpts=0x%x, cur_vpts=0x%x\n",
 				cur_checkin_vpts, cur_vpts);
-			tsync_set_pcr_mode(0, cur_vpts);
+			/* a played recording buffers far ahead of the picture;
+			 * after a jump its PCR is with the picture again, and
+			 * the audio comes by it
+			 */
+			if (tsync_demux_pcr_valid &&
+			    abs((s32)(cur_tsdemuxpcr - cur_vpts)) <
+			    tsync_vpts_discontinuity_margin())
+				tsync_set_pcr_mode(1, cur_tsdemuxpcr);
+			else
+				tsync_set_pcr_mode(0, cur_vpts);
 			tsync_pcr_tsdemuxpcr_discontinue = 0;
 		} else if (!tsync_check_vpts_discontinuity(cur_vpts) &&
 			tsync_pcr_demux_pcr_used() == 0 &&
