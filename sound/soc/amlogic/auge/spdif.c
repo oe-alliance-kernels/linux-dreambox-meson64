@@ -25,6 +25,7 @@
 #include <linux/of_device.h>
 #include <linux/of_platform.h>
 #include <linux/clk.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/extcon.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -56,6 +57,7 @@ struct aml_spdif *spdif_b;
 EXPORT_SYMBOL(spdif_b);
 extern int spdif_a_mute, spdif_b_mute;
 bool spdifout_is_enable(int spdif_id);
+int amlogic_audio_set_spdif_mute(struct aml_spdif *p_spdif, int mute);
 
 static int aml_dai_set_spdif_sysclk(struct snd_soc_dai *cpu_dai,
 				int clk_id, unsigned int freq, int dir);
@@ -268,30 +270,9 @@ static int aml_audio_set_spdif_mute(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
-	struct pinctrl_state *state = NULL;
-	bool mute = !!ucontrol->value.integer.value[0];
 
-	if (IS_ERR_OR_NULL(p_spdif->pin_ctl)) {
-		pr_err("%s(), no pinctrl", __func__);
-		return 0;
-	}
-	if (mute) {
-		state = pinctrl_lookup_state
-			(p_spdif->pin_ctl, "spdif_pins_mute");
-
-		if (!IS_ERR_OR_NULL(state))
-			pinctrl_select_state(p_spdif->pin_ctl, state);
-	} else {
-		state = pinctrl_lookup_state
-			(p_spdif->pin_ctl, "spdif_pins");
-
-		if (!IS_ERR_OR_NULL(state))
-			pinctrl_select_state(p_spdif->pin_ctl, state);
-	}
-
-	p_spdif->mute = mute;
-
-	return 0;
+	return amlogic_audio_set_spdif_mute(p_spdif,
+					    !!ucontrol->value.integer.value[0]);
 }
 
 static int aml_spdif_platform_suspend(
@@ -316,15 +297,10 @@ static int aml_spdif_platform_suspend(
 static int aml_spdif_platform_resume(struct platform_device *pdev)
 {
 	struct aml_spdif *p_spdif = dev_get_drvdata(&pdev->dev);
-	struct pinctrl_state *state = NULL;
 	int stream = SNDRV_PCM_STREAM_PLAYBACK;
 
-	if (!IS_ERR_OR_NULL(p_spdif->pin_ctl)) {
-		state = pinctrl_lookup_state
-		(p_spdif->pin_ctl, "spdif_pins");
-		if (!IS_ERR_OR_NULL(state))
-			pinctrl_select_state(p_spdif->pin_ctl, state);
-	}
+	if (!IS_ERR_OR_NULL(p_spdif->pin_ctl))
+		pinctrl_pm_select_default_state(&pdev->dev);
 	aml_spdif_enable(p_spdif->actrl,
 			stream, p_spdif->id, true);
 	pr_info("%s is unmute\n", __func__);
@@ -356,7 +332,8 @@ static int aml_audio_get_spdif_mute(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct aml_spdif *p_spdif = snd_soc_component_get_drvdata(component);
 
-	ucontrol->value.integer.value[0] = p_spdif->mute;
+	ucontrol->value.integer.value[0] =
+		(p_spdif->id ? spdif_b_mute : spdif_a_mute) ? 1 : 0;
 
 	return 0;
 }
@@ -566,6 +543,9 @@ static const struct snd_kcontrol_new snd_spdif_b_controls[] = {
 	SOC_SINGLE_EXT("SPDIF_B CLK Fine Setting",
 		       0, 0, 2000000, 0,
 		       spdif_clk_get, spdif_clk_set),
+	SOC_SINGLE_BOOL_EXT("Audio spdif_b mute",
+			    0, aml_audio_get_spdif_mute,
+			    aml_audio_set_spdif_mute),
 };
 
 static bool spdifin_check_audiotype_by_sw(struct aml_spdif *p_spdif)
@@ -1164,7 +1144,7 @@ static int aml_dai_spdif_startup(
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 
-		if (0/*p_spdif->clk_cont*/) {
+		if (p_spdif->clk_cont) {
 			pr_info("spdif_%s keep clk continuous\n",
 				(p_spdif->id == 0) ? "a":"b");
 			return 0;
@@ -1395,7 +1375,7 @@ static int aml_dai_spdif_trigger(struct snd_pcm_substream *substream, int cmd,
 			aml_frddr_enable(p_spdif->fddr, 1);
 			udelay(100);
 			aml_spdif_mute(p_spdif->actrl,
-				substream->stream, p_spdif->id, false);
+				substream->stream, p_spdif->id, p_spdif->mute);
 		} else {
 			dev_info(substream->pcm->card->dev, "S/PDIF Capture enable\n");
 			aml_toddr_enable(p_spdif->tddr, 1);
@@ -1639,11 +1619,7 @@ static int aml_spdif_parse_of(struct platform_device *pdev)
 		 * only for spdif_a
 		 * spdif_b has no pin to output yet
 		 */
-		p_spdif->pin_ctl = devm_pinctrl_get_select(dev, "spdif_pins");
-		if (IS_ERR(p_spdif->pin_ctl)) {
-			dev_info(dev, "aml_spdif_get_pins error!\n");
-			return PTR_ERR(p_spdif->pin_ctl);
-		}
+		/* pins come from the "default" state, mute via audiobus */
 
 		/* spdifin sample rate change event */
 		p_spdif->edev = devm_extcon_dev_allocate(dev, spdifin_extcon);
@@ -1740,10 +1716,8 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 		of_device_get_match_data(dev);
 	if (p_spdif_chipinfo) {
 		aml_spdif->id = p_spdif_chipinfo->id;
-		/* for spdif output zero data, clk be continuous,
-		 * and keep silence when no valid data
-		 */
-		aml_spdif->clk_cont = 1;
+		/* continuous clock only with amlogic,boot-silence */
+		aml_spdif->clk_cont = 0;
 
 		aml_spdif->chipinfo = p_spdif_chipinfo;
 
@@ -1773,6 +1747,32 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 	ret = aml_spdif_parse_of(pdev);
 	if (ret)
 		return -EINVAL;
+
+	aml_spdif->pin_ctl = devm_pinctrl_get(dev);
+
+	/* keep the optical output running with zero data from boot on,
+	 * so a receiver is locked before the first sound
+	 */
+	if (of_property_read_bool(node, "amlogic,boot-silence")) {
+		aml_spdif->clk_cont = 1;
+
+		/* same clock sequence as aml_dai_spdif_startup() */
+		ret = clk_prepare_enable(aml_spdif->gate_spdifout);
+		if (ret)
+			dev_err(dev, "enable gate_spdifout failed: %d\n", ret);
+		ret = clk_set_parent(aml_spdif->clk_spdifout,
+				     aml_spdif->sysclk);
+		if (ret)
+			dev_err(dev, "clk_spdifout parent failed: %d\n", ret);
+		ret = clk_prepare_enable(aml_spdif->sysclk);
+		if (ret)
+			dev_err(dev, "enable sysclk failed: %d\n", ret);
+		ret = clk_prepare_enable(aml_spdif->clk_spdifout);
+		if (ret)
+			dev_err(dev, "enable clk_spdifout failed: %d\n", ret);
+
+		spdifout_play_with_zerodata(aml_spdif->id, reenable, separated);
+	}
 	/* spdif out play zero data at uboot stage */
 	/*
 	if (aml_spdif->clk_cont && aml_spdif->id == 0)
@@ -1793,6 +1793,7 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 	} else if (aml_spdif->id == 1) {
 		spdif_b_mute = 0;
 		spdif_b = aml_spdif;
+		set_spdif_to_hdmitx_id(1);
 	}
 	spdif_priv[aml_spdif->id] = aml_spdif;
 	pr_info("%s, register soc platform\n", __func__);
@@ -1827,6 +1828,7 @@ int amlogic_audio_set_spdif_mute(struct aml_spdif *p_spdif, int mute)
 	if (spdifout_is_enable(p_spdif->id) && !!mute != was_muted)
 		aml_spdif_mute(p_spdif->actrl, SNDRV_PCM_STREAM_PLAYBACK,
 			       p_spdif->id, !!mute);
+	p_spdif->mute = !!mute;
 	return 0;
 }
 EXPORT_SYMBOL(amlogic_audio_set_spdif_mute);

@@ -1964,6 +1964,7 @@
 				pinctrl-0 = <0x2a>;
 				pinctrl-1 = <0x2b>;
 				status = "okay";
+				amlogic,boot-silence;
 				phandle = <0x8a>;
 			};
 
