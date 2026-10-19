@@ -1309,7 +1309,6 @@ static int aml_clkmsr_probe(struct platform_device *pdev)
 	if (IS_ERR(debugfs_root) || !debugfs_root) {
 		pr_warn("failed to create debugfs directory\n");
 		debugfs_root = NULL;
-		return -1;
 	}
 	debugfs_create_file("clkmsr", S_IFREG | 0444,
 			    debugfs_root, NULL, &clkmsr_file_ops);
