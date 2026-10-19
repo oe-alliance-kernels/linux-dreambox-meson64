@@ -506,7 +506,9 @@ static int meson_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	meson_i2c_set_clk_div(i2c);
 
 	for (i = 0; i < num; i++) {
-		ret = meson_i2c_xfer_msg(i2c, msgs + i, i == num - 1);
+		ret = meson_i2c_xfer_msg(i2c, msgs + i,
+					 i == num - 1 ||
+					 (msgs[i].flags & I2C_M_STOP));
 		if (ret)
 			break;
 		count++;
