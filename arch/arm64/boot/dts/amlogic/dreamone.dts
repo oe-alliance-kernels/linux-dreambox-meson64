@@ -1528,6 +1528,7 @@
 	};
 
 	p_tsensor: p_tsensor@ff634594 {
+		amlogic,fallback-trim-info = <0x84000000>;
 		compatible = "amlogic, r1p1-tsensor";
 		device_name = "meson-pthermal";
 		status = "okay";
@@ -1546,6 +1547,7 @@
 	};
 
 	d_tsensor: d_tsensor@ff800228 {
+		amlogic,fallback-trim-info = <0x84000000>;
 		compatible = "amlogic, r1p1-tsensor";
 		device_name = "meson-dthermal";
 		status = "okay";

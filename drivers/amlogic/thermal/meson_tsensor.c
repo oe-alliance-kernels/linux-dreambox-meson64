@@ -343,7 +343,7 @@ static int r1p1_tsensor_initialize(struct platform_device *pdev)
 	struct meson_tsensor_data *data = platform_get_drvdata(pdev);
 	struct meson_tsensor_platform_data *pdata = data->pdata;
 	struct thermal_zone_device *tz = data->tzd;
-	u32 trim_info = 0;
+	u32 trim_info = 0, fallback_trim;
 	u32 rising_threshold = 0, falling_threshold = 0;
 	u32 reboot_reg = 0xffff, con = 0;
 	int ret = 0, threshold_code, i;
@@ -355,6 +355,16 @@ static int r1p1_tsensor_initialize(struct platform_device *pdev)
 	trim_info = readl(data->base_e + R1P1_TRIM_INFO);
 	pr_info("tsensor trim info: 0x%x!\n", trim_info);
 	ver = (trim_info >> 24) & 0xff;
+	/* untrimmed chips (DreamOne/DreamTwo): use calibration from DT */
+	if ((((ver & 0xf) >> 2) == 0 || (ver & 0x80) == 0) &&
+	    !of_property_read_u32(pdev->dev.of_node,
+				  "amlogic,fallback-trim-info",
+				  &fallback_trim)) {
+		pr_info("tsensor hw trim invalid, using fallback 0x%x\n",
+			fallback_trim);
+		trim_info = fallback_trim;
+		ver = (trim_info >> 24) & 0xff;
+	}
 	/*r1p1 tsensor ver to doing*/
 	if (((ver & 0xf) >> 2) == 0) {
 		ret = ERANGE;
