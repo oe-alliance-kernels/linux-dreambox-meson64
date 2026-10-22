@@ -38,6 +38,7 @@ MODULE_PARM_DESC(avsync_debug, "1: log the clock trim, 2: also the timing of eac
 #define EARLY_FIX_US		20000
 #define EARLY_RESTART_US	40000
 #define TIMING_LIMIT_US		2000000
+#define PLAYER_LATE_LIMIT_US	10000000
 #define DROP_MARGIN_US		5000
 #define TRIM_INTERVAL_MS	500
 #define TRIM_KP			50
@@ -476,7 +477,11 @@ static void avsync_update(struct aml_avsync *s,
 		pr_info_ratelimited("avsync: appl %lu map %lu/%llx pts %x scr %x due %lldus rate %u\n",
 				    appl, s->map_frame, s->map_pts, pts, scr,
 				    due_us, s->rate);
-	if (due_us < -TIMING_LIMIT_US ||
+	/* a player restarts a stream of its own (an audio rendition after an
+	 * inserted ad) and writes its first frames seconds late: drop them
+	 */
+	if (due_us < -(READ_ONCE(s->started) && READ_ONCE(s->sysclock) ?
+		       PLAYER_LATE_LIMIT_US : TIMING_LIMIT_US) ||
 	    due_us > (READ_ONCE(s->started) ? TIMING_LIMIT_US : GATE_EARLY_US))
 		return;
 
