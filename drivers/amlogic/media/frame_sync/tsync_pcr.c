@@ -1342,6 +1342,20 @@ void tsync_pcr_avevent_locked(enum avevent_e event, u32 param)
 		/*tsync_pcr_inited_mode = INIT_MODE_VIDEO;*/
 		tsync_pcr_vstart_flag = 1;
 
+		/* a player that runs the system clock may start it before its
+		 * first picture, from a stale value: run it from this picture,
+		 * a picture waiting for the clock (sync mode black) never shows
+		 * else
+		 */
+		if (tsync_disable_demux_pcr && tsync_pcr_started && param &&
+		    abs((s32)(timestamp_pcrscr_get() - param)) > 90000) {
+			tsync_set_pcr_mode(0, param);
+			tsync_pcr_inited_mode = INIT_PRIORITY_VIDEO;
+			pr_info("tsync_pcr: system clock from the first picture 0x%x\n",
+				param);
+			break;
+		}
+
 		if (first_apts == 0 &&
 			cur_checkin_apts == 0xffffffff &&
 			tsync_get_audio_pid_valid()) {
