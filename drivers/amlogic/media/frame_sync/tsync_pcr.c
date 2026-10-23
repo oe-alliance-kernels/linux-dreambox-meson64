@@ -1833,6 +1833,13 @@ void tsync_pcr_hold(bool hold)
 }
 EXPORT_SYMBOL(tsync_pcr_hold);
 
+/* a player runs the system clock, not the demux PCR */
+bool tsync_pcr_player_clock(void)
+{
+	return READ_ONCE(tsync_disable_demux_pcr);
+}
+EXPORT_SYMBOL(tsync_pcr_player_clock);
+
 int tsync_get_vpts_adjust(void)
 {
 	return tsync_vpts_adjust * 90;

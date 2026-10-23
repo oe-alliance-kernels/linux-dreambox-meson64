@@ -32,6 +32,7 @@
 #include <linux/amlogic/media/frame_sync/ptsserv.h>
 #include <linux/amlogic/media/frame_sync/timestamp.h>
 #include <linux/amlogic/media/frame_sync/tsync.h>
+#include <linux/amlogic/media/frame_sync/tsync_pcr.h>
 #include <linux/amlogic/media/vfm/vframe.h>
 #include <linux/amlogic/media/vfm/vframe_provider.h>
 #include <linux/amlogic/media/vfm/vframe_receiver.h>
@@ -4769,8 +4770,12 @@ static irqreturn_t vsync_isr_in(int irq, void *dev_id)
 	/*debug info for skip & repeate vframe case*/
 	if (!vf) {
 		underflow++;
-		/* video master mode, reduce pcrscr */
-		if (tsync_get_mode() == TSYNC_MODE_VMASTER) {
+		/* video master mode, reduce pcrscr; a player that runs the
+		 * system clock waits for a late download: hold the clock, audio
+		 * and video go on together instead of dropping what is late
+		 */
+		if (tsync_get_mode() == TSYNC_MODE_VMASTER ||
+		    tsync_pcr_player_clock()) {
 			s32 pts_inc = 0 - vsync_pts_inc;
 
 			timestamp_pcrscr_inc(pts_inc);
