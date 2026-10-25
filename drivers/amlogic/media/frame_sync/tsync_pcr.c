@@ -216,6 +216,10 @@ static u32 tsync_demux_pcr_continue_count;
 
 static int tsync_vpts_adjust;
 static u32 tsync_disable_demux_pcr;
+/* jiffies of the first picture on the system clock of a player */
+static unsigned long tsync_pcr_sysclock_first;
+/* jiffies until which the pictures wait for the clock set back for the audio */
+static unsigned long tsync_pcr_sysclock_back_until;
 /* started before the demux reported its PCR: follow it once it is valid */
 static bool tsync_pcr_wait_demux;
 static int tsync_pcr_wait_demux_cnt;
@@ -1341,6 +1345,8 @@ void tsync_pcr_avevent_locked(enum avevent_e event, u32 param)
 		tsync_set_av_state(0, 2);
 		/*tsync_pcr_inited_mode = INIT_MODE_VIDEO;*/
 		tsync_pcr_vstart_flag = 1;
+		if (tsync_disable_demux_pcr)
+			tsync_pcr_sysclock_first = jiffies ? jiffies : 1;
 
 		/* a player that runs the system clock may start it before its
 		 * first picture, from a stale value: run it from this picture,
@@ -1409,6 +1415,12 @@ void tsync_pcr_avevent_locked(enum avevent_e event, u32 param)
 		unsigned int systime;
 		unsigned int demux_pcr;
 
+		/* the clock was set back for the audio of a player: the
+		 * pictures wait for it, no jump of the stream
+		 */
+		if (tsync_pcr_sysclock_back_until &&
+		    time_before(jiffies, tsync_pcr_sysclock_back_until))
+			break;
 		cur_checkin_vpts = get_last_checkin_pts(PTS_TYPE_VIDEO);
 		if (tsync_pcr_debug & 0x03)
 			pr_info("VIDEO_TSTAMP_DISCONTINUITY param:0x%x,in:%x\n",
@@ -1832,6 +1844,35 @@ void tsync_pcr_hold(bool hold)
 	spin_unlock_irqrestore(&tsync_pcr_lock, flags);
 }
 EXPORT_SYMBOL(tsync_pcr_hold);
+
+/* a live stream comes in real time and its audio is muxed behind the
+ * picture: the first audio of a player arrives late for the system clock
+ * started from the first picture, and stays late. Set the clock back by the
+ * given time once, right after the first picture; the picture waits.
+ */
+bool tsync_pcr_sysclock_audio_late(u32 late)
+{
+	ulong flags;
+	bool ret = false;
+
+	spin_lock_irqsave(&tsync_pcr_lock, flags);
+	if (tsync_disable_demux_pcr && tsync_pcr_started &&
+	    tsync_pcr_sysclock_first &&
+	    time_before(jiffies, tsync_pcr_sysclock_first + 3 * HZ) &&
+	    late && late < 3 * 90000) {
+		timestamp_pcrscr_set(timestamp_pcrscr_get() - late);
+		/* the pictures wait for it: no timestamp jump until due */
+		tsync_pcr_sysclock_back_until = jiffies +
+			msecs_to_jiffies(late / 90 + 1000);
+		pr_info("tsync_pcr: system clock back by %ums for the audio\n",
+			late / 90);
+		ret = true;
+	}
+	tsync_pcr_sysclock_first = 0;
+	spin_unlock_irqrestore(&tsync_pcr_lock, flags);
+	return ret;
+}
+EXPORT_SYMBOL(tsync_pcr_sysclock_audio_late);
 
 /* a player runs the system clock, not the demux PCR */
 bool tsync_pcr_player_clock(void)

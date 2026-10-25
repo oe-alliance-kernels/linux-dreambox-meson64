@@ -36,6 +36,11 @@ MODULE_PARM_DESC(avsync_debug, "1: log the clock trim, 2: also the timing of eac
 
 #define LATE_DROP_US		20000
 #define EARLY_FIX_US		20000
+/* a live stream comes in real time: run its clock this far behind the audio
+ * when its first audio comes this late
+ */
+#define LIVE_MARGIN_US		500000
+#define LIVE_LATE_US		200000
 #define EARLY_RESTART_US	40000
 #define TIMING_LIMIT_US		2000000
 #define PLAYER_LATE_LIMIT_US	10000000
@@ -498,6 +503,12 @@ static void avsync_update(struct aml_avsync *s,
 			avsync_set_start(s, ktime_add_us(now, wait_us));
 			return;
 		}
+		/* the first audio of a live stream: the clock waits for it */
+		if (READ_ONCE(s->sysclock) && -wait_us > LIVE_LATE_US &&
+		    tsync_pcr_sysclock_audio_late((u32)div_u64((LIVE_MARGIN_US - wait_us) * 9, 100))) {
+			avsync_set_start(s, ktime_add_us(now, LIVE_MARGIN_US));
+			return;
+		}
 		/* late: drop what is written and start, the running output
 		 * drops the rest; dropped frames still fill the buffer
 		 */
@@ -534,6 +545,12 @@ static void avsync_update(struct aml_avsync *s,
 	s->pending = 0;
 
 	if (err_us > LATE_DROP_US) {
+		/* the first audio of a live stream: the clock waits for it */
+		if (READ_ONCE(s->sysclock) && err_us > LIVE_LATE_US &&
+		    tsync_pcr_sysclock_audio_late((u32)div_u64((err_us + LIVE_MARGIN_US) * 9, 100))) {
+			avsync_trim_reset(s, now);
+			return;
+		}
 		/* data written earlier is overwritten */
 		room = queued - (snd_pcm_sframes_t)us_to_frames(s, DROP_MARGIN_US);
 		d = room > 0 ? min_t(snd_pcm_uframes_t,
