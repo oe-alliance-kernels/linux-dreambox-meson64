@@ -601,8 +601,8 @@ static int force_filter_mode = 1;
 MODULE_PARM_DESC(force_filter_mode, "force_filter_mode");
 module_param(force_filter_mode, int, 0664);
 #endif
-/*temp disable sr for power test*/
-bool super_scaler = true;
+/* off: the pps scaler alone keeps fine detail, sr0/sr1 soften it */
+bool super_scaler;
 struct sr_info_s sr_info;
 static unsigned int super_debug;
 module_param(super_debug, uint, 0664);
