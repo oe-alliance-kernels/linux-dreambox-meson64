@@ -52,17 +52,28 @@ enum {
 static void __iomem *codecio_reg_map[CODECIO_BUS_MAX];
 static u32 codecio_reg_max[CODECIO_BUS_MAX];
 
+/* a decoder polled in a loop must not flood the console */
+static void codecio_dump_stack_once(void)
+{
+	static bool dumped;
+
+	if (!dumped) {
+		dumped = true;
+		dump_stack();
+	}
+}
+
 static inline int codecio_reg_read(u32 bus_type, u32 reg, u32 *val)
 {
 	if (bus_type < CODECIO_BUS_MAX) {
 		if (
 			(!codecio_reg_map[bus_type]) ||
 			(codecio_reg_max[bus_type] < reg)) {
-			pr_err(
+			pr_err_ratelimited(
 				"Not supported bus type %d or addr %x to read.\n",
 				bus_type,
 				reg);
-			dump_stack();
+			codecio_dump_stack_once();
 			return -1;
 		}
 
@@ -78,11 +89,11 @@ static inline int codecio_reg_write(u32 bus_type, u32 reg, u32 val)
 		if (
 			(!codecio_reg_map[bus_type]) ||
 			(codecio_reg_max[bus_type] < reg)) {
-			pr_err(
+			pr_err_ratelimited(
 				"Not supported bus type %d or addr %x to write.\n",
 				bus_type,
 				reg);
-			dump_stack();
+			codecio_dump_stack_once();
 			return -1;
 		}
 
@@ -110,7 +121,7 @@ void codecio_write_cbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_CBUS_BASE, reg << 2, val);
 	if (ret) {
-		pr_err("write cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write cbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -134,7 +145,7 @@ void codecio_write_dosbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_DOSBUS_BASE, reg << 2, val);
 	if (ret) {
-		pr_err("write cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write cbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -146,7 +157,7 @@ int codecio_read_hiubus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_HIUBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read cbus reg %x error %d\n", reg, ret);
 		return -1;
 	} else
 		return val;
@@ -158,7 +169,7 @@ void codecio_write_hiubus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_HIUBUS_BASE, reg << 2, val);
 	if (ret) {
-		pr_err("write cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write cbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -173,7 +184,7 @@ int codecio_read_aobus(unsigned int reg)
 	 */
 	ret = codecio_reg_read(CODECIO_AOBUS_BASE, reg, &val);
 	if (ret) {
-		pr_err("read cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read cbus reg %x error %d\n", reg, ret);
 		return -1;
 	} else
 		return val;
@@ -185,7 +196,7 @@ void codecio_write_aobus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_AOBUS_BASE, reg, val);
 	if (ret) {
-		pr_err("write cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write cbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -196,12 +207,12 @@ int codecio_read_vcbus(unsigned int reg)
 	int ret, val;
 
 	if ((reg >= 0x1900) && (reg < 0x1a00)) {
-		pr_err("read vcbus reg %x error!\n", reg);
+		pr_err_ratelimited("read vcbus reg %x error!\n", reg);
 		return 0;
 	}
 	ret = codecio_reg_read(CODECIO_VCBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read vcbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read vcbus reg %x error %d\n", reg, ret);
 		return -1;
 	} else
 		return val;
@@ -212,12 +223,12 @@ void codecio_write_vcbus(unsigned int reg, unsigned int val)
 	int ret;
 
 	if ((reg >= 0x1900) && (reg < 0x1a00)) {
-		pr_err("write vcbus reg %x error!\n", reg);
+		pr_err_ratelimited("write vcbus reg %x error!\n", reg);
 		return;
 	}
 	ret = codecio_reg_write(CODECIO_VCBUS_BASE, reg << 2, val);
 	if (ret) {
-		pr_err("write vcbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write vcbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -229,7 +240,7 @@ int codecio_read_dmcbus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_DMCBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read cbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read cbus reg %x error %d\n", reg, ret);
 		return -1;
 	} else
 		return val;
@@ -241,7 +252,7 @@ void codecio_write_dmcbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_DMCBUS_BASE, reg << 2, val);
 	if (ret) {
-		pr_err("write dmcbus reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write dmcbus reg %x error %d\n", reg, ret);
 		return;
 	} else
 		return;
@@ -253,7 +264,7 @@ int codecio_read_parsbus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_CBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read parser reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read parser reg %x error %d\n", reg, ret);
 		return -1;
 	}
 
@@ -266,7 +277,7 @@ void codecio_write_parsbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_CBUS_BASE, reg << 2, val);
 	if (ret)
-		pr_err("write parser reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write parser reg %x error %d\n", reg, ret);
 }
 
 int codecio_read_aiubus(unsigned int reg)
@@ -275,7 +286,7 @@ int codecio_read_aiubus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_CBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read aiu reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read aiu reg %x error %d\n", reg, ret);
 		return -1;
 	}
 
@@ -288,7 +299,7 @@ void codecio_write_aiubus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_CBUS_BASE, reg << 2, val);
 	if (ret)
-		pr_err("write aiu reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write aiu reg %x error %d\n", reg, ret);
 }
 
 int codecio_read_demuxbus(unsigned int reg)
@@ -297,7 +308,7 @@ int codecio_read_demuxbus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_CBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read demux reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read demux reg %x error %d\n", reg, ret);
 		return -1;
 	}
 
@@ -310,7 +321,7 @@ void codecio_write_demuxbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_CBUS_BASE, reg << 2, val);
 	if (ret)
-		pr_err("write demux reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write demux reg %x error %d\n", reg, ret);
 }
 
 int codecio_read_resetbus(unsigned int reg)
@@ -319,7 +330,7 @@ int codecio_read_resetbus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_CBUS_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read reset reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read reset reg %x error %d\n", reg, ret);
 		return -1;
 	}
 
@@ -332,7 +343,7 @@ void codecio_write_resetbus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_CBUS_BASE, reg << 2, val);
 	if (ret)
-		pr_err("write reset reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write reset reg %x error %d\n", reg, ret);
 }
 
 int codecio_read_efusebus(unsigned int reg)
@@ -341,7 +352,7 @@ int codecio_read_efusebus(unsigned int reg)
 
 	ret = codecio_reg_read(CODECIO_EFUSE_BASE, reg << 2, &val);
 	if (ret) {
-		pr_err("read reset reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("read reset reg %x error %d\n", reg, ret);
 		return -1;
 	}
 
@@ -354,7 +365,7 @@ void codecio_write_efusebus(unsigned int reg, unsigned int val)
 
 	ret = codecio_reg_write(CODECIO_EFUSE_BASE, reg << 2, val);
 	if (ret)
-		pr_err("write reset reg %x error %d\n", reg, ret);
+		pr_err_ratelimited("write reset reg %x error %d\n", reg, ret);
 }
 
 static int codec_io_probe(struct platform_device *pdev)
