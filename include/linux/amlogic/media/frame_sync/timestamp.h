@@ -48,6 +48,8 @@ extern void timestamp_apts_inc(s32 val);
 
 extern u32 timestamp_pcrscr_get(void);
 
+u32 timestamp_pcrscr_get_smooth(void);
+
 extern void timestamp_pcrscr_set(u32 pts);
 
 u64 timestamp_pcrscr_get_u64(void);

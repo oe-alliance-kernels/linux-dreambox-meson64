@@ -345,7 +345,10 @@ static bool avsync_scr(struct aml_avsync *s, u32 *scr)
 		/* stopped without video (audio only) and in pause: play free */
 		if (!timestamp_pcrscr_enable_state())
 			return false;
-		*scr = timestamp_pcrscr_get();
+		/* it moves in steps of a vsync, 40 ms at 25 Hz: read it in
+		 * between, the error must not swing by a step
+		 */
+		*scr = timestamp_pcrscr_get_smooth();
 		return *scr != 0;
 	}
 	if (tsync_get_mode() != TSYNC_MODE_PCRMASTER)

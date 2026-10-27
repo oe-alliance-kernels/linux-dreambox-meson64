@@ -17,6 +17,7 @@
 
 #define DEBUG
 #include <linux/module.h>
+#include <linux/ktime.h>
 #include <linux/amlogic/media/frame_sync/tsync.h>
 #include <linux/amlogic/media/frame_sync/tsync_pcr.h>
 #include <linux/amlogic/media/utils/vdec_reg.h>
@@ -36,6 +37,10 @@ static u32 system_time;
 static u32 system_time_up;
 /* run by an external owner, the vsync does not advance it */
 static bool system_time_external;
+/* the last vsync step of the system clock: when, how far, and its period */
+static ktime_t system_time_step_at;
+static s32 system_time_step;
+static s64 system_time_step_ns;
 static u32 audio_pts_up;
 static u32 audio_pts_started;
 static u32 first_vpts;
@@ -188,6 +193,27 @@ u32 timestamp_pcrscr_get(void)
 }
 EXPORT_SYMBOL(timestamp_pcrscr_get);
 
+/* the system clock between two vsync steps: the last step carried on by
+ * the time since it, at most one step; not while it stands or goes back
+ */
+u32 timestamp_pcrscr_get_smooth(void)
+{
+	u32 scr = timestamp_pcrscr_get();
+	s32 step = READ_ONCE(system_time_step);
+	s64 period = READ_ONCE(system_time_step_ns);
+	s64 ns;
+
+	if (scr != system_time || step <= 0 || !period)
+		return scr;
+	ns = ktime_to_ns(ktime_sub(ktime_get(), system_time_step_at));
+	if (ns <= 0)
+		return scr;
+	if (ns > period)
+		ns = period;
+	return scr + (u32)div64_s64((s64)step * ns, period);
+}
+EXPORT_SYMBOL(timestamp_pcrscr_get_smooth);
+
 u64 timestamp_pcrscr_get_u64(void)
 {
 	u64 pts_val_video;
@@ -336,8 +362,23 @@ u32 timestamp_tsdemux_pcr_get(void)
 }
 EXPORT_SYMBOL(timestamp_tsdemux_pcr_get);
 
+/* the system clock moves in steps of a vsync; note each step to read the
+ * clock in between
+ */
+static void timestamp_pcrscr_step(s32 inc)
+{
+	ktime_t now = ktime_get();
+	s64 ns = ktime_to_ns(ktime_sub(now, system_time_step_at));
+
+	WRITE_ONCE(system_time_step_ns,
+		   ns > 0 && ns < 100 * NSEC_PER_MSEC ? ns : 0);
+	system_time_step_at = now;
+	WRITE_ONCE(system_time_step, inc);
+}
+
 void timestamp_pcrscr_set(u32 pts)
 {
+	WRITE_ONCE(system_time_step, 0);
 	/*pr_info("timestamp_pcrscr_set system time  = %x\n", pts);*/
 	system_time = pts;
 	ATRACE_COUNTER("PCRSCR",  pts);
@@ -405,6 +446,7 @@ void timestamp_pcrscr_inc(s32 inc)
 		inc = inc * (s32)timestamp_inc_factor / PLL_FACTOR;
 #endif
 		system_time += inc + system_time_inc_adj;
+		timestamp_pcrscr_step(inc + system_time_inc_adj);
 		ATRACE_COUNTER("PCRSCR",  system_time);
 	}
 }
@@ -421,10 +463,11 @@ void timestamp_pcrscr_inc_scale(s32 inc, u32 base)
 
 	if (system_time_up && !READ_ONCE(system_time_external)) {
 		u32 r;
-
-		system_time +=
-			div_u64_rem(90000ULL * inc, base, &r) +
+		s32 step = div_u64_rem(90000ULL * inc, base, &r) +
 			system_time_inc_adj;
+
+		system_time += step;
+		timestamp_pcrscr_step(step);
 		system_time_scale_remainder += r;
 		if (system_time_scale_remainder >= system_time_scale_base) {
 			system_time++;
