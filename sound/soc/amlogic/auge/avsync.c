@@ -503,8 +503,11 @@ static void avsync_update(struct aml_avsync *s,
 			avsync_set_start(s, ktime_add_us(now, wait_us));
 			return;
 		}
-		/* the first audio of a live stream: the clock waits for it */
+		/* the first audio of a live stream: the clock waits for it;
+		 * audio queued before the clock was valid is no late stream
+		 */
 		if (READ_ONCE(s->sysclock) && -wait_us > LIVE_LATE_US &&
+		    -due_us > LIVE_LATE_US &&
 		    tsync_pcr_sysclock_audio_late((u32)div_u64((LIVE_MARGIN_US - wait_us) * 9, 100))) {
 			avsync_set_start(s, ktime_add_us(now, LIVE_MARGIN_US));
 			return;
@@ -547,6 +550,7 @@ static void avsync_update(struct aml_avsync *s,
 	if (err_us > LATE_DROP_US) {
 		/* the first audio of a live stream: the clock waits for it */
 		if (READ_ONCE(s->sysclock) && err_us > LIVE_LATE_US &&
+		    -due_us > LIVE_LATE_US &&
 		    tsync_pcr_sysclock_audio_late((u32)div_u64((err_us + LIVE_MARGIN_US) * 9, 100))) {
 			avsync_trim_reset(s, now);
 			return;
