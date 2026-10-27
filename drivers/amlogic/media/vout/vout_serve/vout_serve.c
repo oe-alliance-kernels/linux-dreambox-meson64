@@ -62,11 +62,12 @@ static int early_resume_flag;
 #define VMODE_NAME_LEN_MAX    64
 static struct class *vout_class;
 static DEFINE_MUTEX(vout_serve_mutex);
-static char vout_mode_uboot[VMODE_NAME_LEN_MAX] = "null";
+/* without vout= take over the 1080p50 u-boot shows instead of no output */
+static char vout_mode_uboot[VMODE_NAME_LEN_MAX] = "1080p50";
 static char vout_mode[VMODE_NAME_LEN_MAX] __nosavedata;
 static char local_name[VMODE_NAME_LEN_MAX] = {0};
 static u32 vout_init_vmode = VMODE_INIT_NULL;
-static int uboot_display;
+static int uboot_display = 1;
 static unsigned int bist_mode;
 
 static char vout_axis[64] __nosavedata;
