@@ -3722,6 +3722,7 @@ static ssize_t store_phy(struct device *dev,
 	else
 		pr_info(SYS "set phy wrong: %s\n", buf);
 
+	hdmitx_device.phy_off = cmd == TMDS_PHY_DISABLE;
 	hdmitx_device.hwop.cntlmisc(&hdmitx_device, MISC_TMDS_PHY_OP, cmd);
 	return count;
 }

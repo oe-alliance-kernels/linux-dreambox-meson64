@@ -496,6 +496,8 @@ struct hdmitx_dev {
 	unsigned int vend_id_hit:1;
 	bool systemcontrol_on;
 	unsigned char vid_mute_op;
+	/* phy switched off through sysfs, a mode set keeps it off */
+	bool phy_off;
 };
 
 #define CMD_DDC_OFFSET          (0x10 << 24)

@@ -1987,7 +1987,7 @@ static void hdmitx_set_phy(struct hdmitx_dev *hdev)
 {
 	unsigned int phy_addr = 0;
 
-	if (!hdev)
+	if (!hdev || hdev->phy_off)
 		return;
 
 	if (hdev->chip_type >= MESON_CPU_ID_SC2)
