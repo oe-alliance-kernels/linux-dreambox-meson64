@@ -361,9 +361,11 @@ static bool avsync_scr(struct aml_avsync *s, u32 *scr)
 	/* The demux of a played recording often reports its PCR invalid
 	 * after a pause or a jump while tsync follows it all the same; a
 	 * system clock running with the PCR is the clock the picture plays
-	 * by. One far off it is from before a zap or a flush.
+	 * by. One far off it is from before a zap or a flush. A live clock
+	 * runs the set PCR latency behind the PCR, which may exceed a second.
 	 */
-	if (abs((s32)(*scr - pcr)) > 90 * 1000)
+	if (abs((s32)(*scr - pcr)) > 90 * 1000 &&
+	    abs((s32)(*scr - (pcr - timestamp_get_pcrlatency()))) > 90 * 1000)
 		return false;
 
 	return *scr != 0;
