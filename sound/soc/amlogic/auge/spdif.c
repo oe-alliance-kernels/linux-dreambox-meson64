@@ -1994,8 +1994,9 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 
 	aml_spdif->pin_ctl = devm_pinctrl_get(dev);
 
-	/* keep the optical output running with zero data from boot on,
-	 * so a receiver is locked before the first sound
+	/* keep the output running with zero data from boot on, so a
+	 * receiver is locked before the first sound and a stop does not
+	 * cut the output inside a sample
 	 */
 	if (of_property_read_bool(node, "amlogic,boot-silence")) {
 		aml_spdif->clk_cont = 1;

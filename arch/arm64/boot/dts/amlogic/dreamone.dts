@@ -1973,6 +1973,7 @@
 				#sound-dai-cells = <0x00>;
 				clocks = <0x02 0x0c 0x27 0x15 0x27 0x21>;
 				clock-names = "sysclk", "gate_spdifout", "clk_spdifout";
+				amlogic,boot-silence;
 				status = "okay";
 				phandle = <0x88>;
 			};
