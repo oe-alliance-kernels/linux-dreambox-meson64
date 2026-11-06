@@ -536,12 +536,33 @@ static unsigned int dreamaudio_poll(struct file *file, poll_table *wait)
 }
 
 static const struct file_operations dreamaudio_delay_fops;
+static const struct file_operations dreamaudio_mode_fops;
+static const struct file_operations dreamaudio_choices_fops;
+
+/* the output of a codec as the settings ask; the decoding service reads it */
+struct dreamaudio_mode {
+	const char *name;
+	const char *choices;
+	char value[16];
+};
+
+static struct dreamaudio_mode dreamaudio_modes[] = {
+	{ "ac3plus", "hdmi_best passthrough downmix force_ac3", "force_ac3" },
+	{ "dtshd", "hdmi_best passthrough downmix", "downmix" },
+	{ "truehd", "hdmi_best passthrough downmix", "downmix" },
+	{ "ac4", "hdmi_best passthrough downmix", "hdmi_best" },
+	{ "aac_transcode", "off force_ac3", "off" },
+};
+
+static DEFINE_MUTEX(dreamaudio_mode_lock);
 
 /* /proc/stb/audio belongs to the demux driver, a module loaded later */
 static void dreamaudio_add_proc(void)
 {
 	static DEFINE_MUTEX(lock);
 	static bool done;
+	char path[48];
+	int i;
 
 	mutex_lock(&lock);
 	if (!done &&
@@ -549,6 +570,17 @@ static void dreamaudio_add_proc(void)
 			     &dreamaudio_delay_fops, &aml_avsync_delay_pcm)) {
 		proc_create_data("stb/audio/audio_delay_bitstream", 0644, NULL,
 				 &dreamaudio_delay_fops, &aml_avsync_delay_raw);
+		for (i = 0; i < ARRAY_SIZE(dreamaudio_modes); i++) {
+			snprintf(path, sizeof(path), "stb/audio/%s",
+				 dreamaudio_modes[i].name);
+			proc_create_data(path, 0644, NULL, &dreamaudio_mode_fops,
+					 &dreamaudio_modes[i]);
+			snprintf(path, sizeof(path), "stb/audio/%s_choices",
+				 dreamaudio_modes[i].name);
+			proc_create_data(path, 0444, NULL,
+					 &dreamaudio_choices_fops,
+					 &dreamaudio_modes[i]);
+		}
 		done = true;
 	}
 	mutex_unlock(&lock);
@@ -731,6 +763,90 @@ static const struct file_operations dreamaudio_delay_fops = {
 	.open = dreamaudio_delay_open,
 	.read = seq_read,
 	.write = dreamaudio_delay_write,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+/* /proc/stb/audio/ac3plus and the others, one of their choices */
+static int dreamaudio_mode_show(struct seq_file *m, void *v)
+{
+	struct dreamaudio_mode *mode = m->private;
+
+	mutex_lock(&dreamaudio_mode_lock);
+	seq_printf(m, "%s\n", mode->value);
+	mutex_unlock(&dreamaudio_mode_lock);
+	return 0;
+}
+
+static int dreamaudio_mode_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, dreamaudio_mode_show, PDE_DATA(inode));
+}
+
+static bool dreamaudio_mode_valid(const char *choices, const char *value)
+{
+	size_t len = strlen(value);
+	const char *p = choices;
+
+	while (len && (p = strstr(p, value))) {
+		if ((p == choices || p[-1] == ' ') &&
+		    (p[len] == ' ' || !p[len]))
+			return true;
+		p += len;
+	}
+	return false;
+}
+
+static ssize_t dreamaudio_mode_write(struct file *file,
+				     const char __user *buf, size_t count,
+				     loff_t *ppos)
+{
+	struct dreamaudio_mode *mode =
+		((struct seq_file *)file->private_data)->private;
+	char s[sizeof(mode->value)];
+	char *value;
+
+	if (count >= sizeof(s))
+		return -EINVAL;
+	if (copy_from_user(s, buf, count))
+		return -EFAULT;
+	s[count] = 0;
+	value = strim(s);
+	if (!dreamaudio_mode_valid(mode->choices, value))
+		return -EINVAL;
+	mutex_lock(&dreamaudio_mode_lock);
+	strlcpy(mode->value, value, sizeof(mode->value));
+	mutex_unlock(&dreamaudio_mode_lock);
+
+	return count;
+}
+
+static const struct file_operations dreamaudio_mode_fops = {
+	.owner = THIS_MODULE,
+	.open = dreamaudio_mode_open,
+	.read = seq_read,
+	.write = dreamaudio_mode_write,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int dreamaudio_choices_show(struct seq_file *m, void *v)
+{
+	struct dreamaudio_mode *mode = m->private;
+
+	seq_printf(m, "%s\n", mode->choices);
+	return 0;
+}
+
+static int dreamaudio_choices_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, dreamaudio_choices_show, PDE_DATA(inode));
+}
+
+static const struct file_operations dreamaudio_choices_fops = {
+	.owner = THIS_MODULE,
+	.open = dreamaudio_choices_open,
+	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = single_release,
 };
