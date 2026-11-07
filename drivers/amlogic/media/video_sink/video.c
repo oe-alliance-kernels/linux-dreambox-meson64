@@ -943,6 +943,18 @@ EXPORT_SYMBOL(trickmode_i);
 u32 trickmode_fffb;
 atomic_t trickmode_framedone = ATOMIC_INIT(0);
 atomic_t video_sizechange = ATOMIC_INIT(0);
+static u32 video_aspect;
+
+/* a frame of another aspect ratio, e.g. 16:9 after 4:3 at the same size */
+static bool video_aspect_changed(struct vframe_s *vf)
+{
+	u32 aspect = vf->ratio_control & DISP_RATIO_ASPECT_RATIO_MASK;
+
+	if (aspect == video_aspect)
+		return false;
+	video_aspect = aspect;
+	return true;
+}
 atomic_t video_unreg_flag = ATOMIC_INIT(0);
 atomic_t video_inirq_flag = ATOMIC_INIT(0);
 atomic_t video_pause_flag = ATOMIC_INIT(0);
@@ -2002,7 +2014,8 @@ static struct vframe_s *vsync_toggle_frame(struct vframe_s *vf, int line)
 				cur_width = vf->width;
 				cur_height = vf->height;
 			}
-			if ((old_w != cur_width) ||
+			if (video_aspect_changed(vf) ||
+			    (old_w != cur_width) ||
 			    (old_h != cur_height)) {
 				atomic_inc(&video_sizechange);
 				wake_up_interruptible(&amvideo_sizechange_wait);
@@ -3686,7 +3699,7 @@ static void primary_swap_frame(
 	    (last_el_status != vf_with_el))
 		force_toggle = true;
 
-	if (!layer->dispbuf ||
+	if (video_aspect_changed(vf) || !layer->dispbuf ||
 	    ((layer->dispbuf->width != vf->width) ||
 	    (layer->dispbuf->height != vf->height))) {
 		atomic_inc(&video_sizechange);
