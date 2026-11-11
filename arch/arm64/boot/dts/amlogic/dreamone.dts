@@ -702,6 +702,7 @@
 			mux {
 				groups = "spdif_out_ao";
 				function = "spdif_out_ao";
+				drive-strength = <3>;
 			};
 		};
 
