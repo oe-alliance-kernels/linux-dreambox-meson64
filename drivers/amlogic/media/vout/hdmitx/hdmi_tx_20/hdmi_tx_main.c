@@ -3724,6 +3724,8 @@ static ssize_t store_phy(struct device *dev,
 
 	hdmitx_device.phy_off = cmd == TMDS_PHY_DISABLE;
 	hdmitx_device.hwop.cntlmisc(&hdmitx_device, MISC_TMDS_PHY_OP, cmd);
+	hdmitx_event_notify(hdmitx_device.phy_off ? HDMITX_PHY_OFF :
+			    HDMITX_PHY_ON, NULL);
 	return count;
 }
 

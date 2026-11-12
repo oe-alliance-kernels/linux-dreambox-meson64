@@ -72,6 +72,8 @@ void aml_spdifin_chnum_en(struct aml_audio_controller *actrl,
 
 int spdif_a_mute;
 int spdif_b_mute;
+/* both outputs held off, set by aml_spdif_set_output() */
+bool spdifout_off;
 
 void aml_spdif_enable(
 	struct aml_audio_controller *actrl,
@@ -540,6 +542,8 @@ void spdifout_enable(int spdif_id, bool is_enable, bool reenable)
 		/*audiobus_update_bits(reg, 0x3 << 21, 0x3 << 21);*/
 		return;
 	}
+	if (READ_ONCE(spdifout_off))
+		return;
 
 	/* disable then for reset, to correct channel map */
 	if (reenable)

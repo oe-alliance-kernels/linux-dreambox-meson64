@@ -652,6 +652,8 @@ static void cec_queue_hdmi_plug(void)
 static int hdmitx_notify_callback(struct notifier_block *block,
 				  unsigned long cmd, void *para)
 {
+	if (cmd == HDMITX_PHY_OFF || cmd == HDMITX_PHY_ON)
+		return NOTIFY_DONE;
 	if (cmd != HDMITX_PLUG && cmd != HDMITX_UNPLUG) {
 		CEC_ERR("[%s] unsupported notify:%ld\n", __func__, cmd);
 		return NOTIFY_DONE;

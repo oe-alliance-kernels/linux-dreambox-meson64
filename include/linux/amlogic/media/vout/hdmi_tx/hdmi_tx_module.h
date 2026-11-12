@@ -776,6 +776,9 @@ extern int hdmitx_set_audio(struct hdmitx_dev *hdmitx_device,
 #define HDMITX_PLUG			1
 #define HDMITX_UNPLUG			2
 #define HDMITX_PHY_ADDR_VALID		3
+/* transmitter switched off or on through the phy attribute */
+#define HDMITX_PHY_OFF			4
+#define HDMITX_PHY_ON			5
 
 enum hdmitx_event {
 	HDMITX_NONE_EVENT = 0,

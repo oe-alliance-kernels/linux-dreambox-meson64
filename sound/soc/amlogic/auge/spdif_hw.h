@@ -38,6 +38,8 @@ void aml_spdif_ctrl_write(struct aml_audio_controller *actrl,
 void aml_spdifin_chnum_en(struct aml_audio_controller *actrl,
 			  int index,
 			  bool is_enable);
+extern bool spdifout_off;
+
 void aml_spdif_enable(
 	struct aml_audio_controller *actrl,
 	int stream,

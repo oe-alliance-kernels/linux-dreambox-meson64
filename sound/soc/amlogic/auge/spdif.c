@@ -27,6 +27,7 @@
 #include <linux/clk.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/extcon.h>
+#include <linux/amlogic/media/vout/hdmi_tx/hdmi_tx_module.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/initval.h>
@@ -52,6 +53,8 @@
 
 /*#define __SPDIFIN_AUDIO_TYPE_HW__*/
 struct aml_spdif *spdif_priv[2];
+static struct notifier_block aml_spdif_hdmitx_nb;
+static bool hdmitx_nb_registered;
 struct aml_spdif *spdif_a;
 EXPORT_SYMBOL(spdif_a);
 struct aml_spdif *spdif_b;
@@ -1562,8 +1565,9 @@ static int aml_dai_spdif_trigger(struct snd_pcm_substream *substream, int cmd,
 			p_spdif->id);
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			aml_spdif_enable(p_spdif->actrl,
-			    substream->stream, p_spdif->id, true);
+			if (!READ_ONCE(spdifout_off))
+				aml_spdif_enable(p_spdif->actrl,
+				    substream->stream, p_spdif->id, true);
 			if (!aml_avsync_trigger_start(&p_spdif->avsync)) {
 				/* zeros until the first frame is due */
 				aml_spdif_mute(p_spdif->actrl,
@@ -2041,6 +2045,10 @@ static int aml_spdif_platform_probe(struct platform_device *pdev)
 		set_spdif_to_hdmitx_id(1);
 	}
 	spdif_priv[aml_spdif->id] = aml_spdif;
+	if (!hdmitx_nb_registered) {
+		hdmitx_nb_registered = true;
+		hdmitx_event_notifier_regist(&aml_spdif_hdmitx_nb);
+	}
 	pr_info("%s, register soc platform\n", __func__);
 
 	return devm_snd_soc_register_platform(dev, &aml_spdif_platform);
@@ -2077,3 +2085,53 @@ int amlogic_audio_set_spdif_mute(struct aml_spdif *p_spdif, int mute)
 	return 0;
 }
 EXPORT_SYMBOL(amlogic_audio_set_spdif_mute);
+
+/* off stops both outputs and parks the optical pin, so a receiver sees
+ * no signal and can go to standby; on restarts a continuous output, any
+ * other starts with its next stream
+ */
+static void aml_spdif_set_output(bool on)
+{
+	static DEFINE_MUTEX(lock);
+	struct pinctrl_state *pstate;
+	struct aml_spdif *p_spdif;
+	int i;
+
+	mutex_lock(&lock);
+	WRITE_ONCE(spdifout_off, !on);
+	for (i = 0; i < ARRAY_SIZE(spdif_priv); i++) {
+		p_spdif = spdif_priv[i];
+		if (!p_spdif)
+			continue;
+		if (!IS_ERR_OR_NULL(p_spdif->pin_ctl)) {
+			if (on) {
+				pinctrl_pm_select_default_state(p_spdif->dev);
+			} else {
+				pstate = pinctrl_lookup_state(p_spdif->pin_ctl,
+							      "spdif_pins_mute");
+				if (!IS_ERR_OR_NULL(pstate))
+					pinctrl_select_state(p_spdif->pin_ctl,
+							     pstate);
+			}
+		}
+		if (!on || p_spdif->clk_cont)
+			aml_spdif_enable(p_spdif->actrl,
+					 SNDRV_PCM_STREAM_PLAYBACK,
+					 p_spdif->id, on);
+	}
+	mutex_unlock(&lock);
+}
+
+/* the outputs follow the HDMI transmitter, which is off in standby */
+static int aml_spdif_hdmitx_notify(struct notifier_block *nb,
+				   unsigned long cmd, void *arg)
+{
+	if (cmd != HDMITX_PHY_OFF && cmd != HDMITX_PHY_ON)
+		return NOTIFY_DONE;
+	aml_spdif_set_output(cmd == HDMITX_PHY_ON);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block aml_spdif_hdmitx_nb = {
+	.notifier_call = aml_spdif_hdmitx_notify,
+};
