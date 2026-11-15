@@ -661,6 +661,8 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 		return ioctl_fiemap(filp, arg);
 
 	case FIGETBSZ:
+		if (S_ISCHR(inode->i_mode))
+			return vfs_ioctl(filp, cmd, arg);
 		return put_user(inode->i_sb->s_blocksize, argp);
 
 	case FICLONE:
